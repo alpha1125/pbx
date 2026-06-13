@@ -27,6 +27,7 @@ class TelnyxCallProjectionService
         private readonly CallSessionRepository $sessionRepository,
         private readonly CallLegRepository $legRepository,
         private readonly EntityManagerInterface $entityManager,
+        private readonly ClientStateService $clientState,
     ) {
     }
 
@@ -113,6 +114,9 @@ class TelnyxCallProjectionService
             $startedAt = $this->dateValue($payload['start_time'] ?? null) ?? $occurredAt;
             $this->advanceStatus($session, 'initiated');
             $session->setStartedAt($session->getStartedAt() ?? $startedAt);
+            if ('incoming' === $this->stringValue($payload, 'direction') && null === $session->getFlowType()) {
+                $session->setFlowType(CallSession::FLOW_TYPE_INBOUND_FORWARD);
+            }
             if (null !== $leg) {
                 $this->advanceStatus($leg, 'initiated');
                 $leg->setStartedAt($leg->getStartedAt() ?? $startedAt);
@@ -212,9 +216,7 @@ class TelnyxCallProjectionService
      */
     private function linkParentSession(CallSession $session, array $payload): void
     {
-        $parentProviderSessionId = $this->inboundSessionIdFromClientState(
-            $this->stringValue($payload, 'client_state'),
-        );
+        $parentProviderSessionId = $this->inboundSessionIdFromClientState($this->stringValue($payload, 'client_state'));
         if (null === $parentProviderSessionId || $parentProviderSessionId === $session->getProviderSessionId()) {
             return;
         }
@@ -260,21 +262,7 @@ class TelnyxCallProjectionService
 
     private function inboundSessionIdFromClientState(?string $clientState): ?string
     {
-        if (null === $clientState) {
-            return null;
-        }
-
-        $decoded = base64_decode($clientState, true);
-        if (false === $decoded) {
-            return null;
-        }
-
-        try {
-            $state = json_decode($decoded, true, flags: JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return null;
-        }
-
+        $state = $this->clientState->decode($clientState);
         $sessionId = is_array($state) ? ($state['inbound_call_session_id'] ?? null) : null;
 
         return is_string($sessionId) && '' !== $sessionId ? $sessionId : null;

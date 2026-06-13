@@ -9,6 +9,7 @@ use App\Entity\CallSession;
 use App\Entity\TelnyxEvent;
 use App\Repository\CallLegRepository;
 use App\Repository\CallSessionRepository;
+use App\Service\ClientStateService;
 use App\Service\TelnyxCallProjectionService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -30,6 +31,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
             $this->sessionRepository,
             $this->legRepository,
             $this->entityManager,
+            new ClientStateService(),
         );
     }
 

@@ -8,7 +8,6 @@ use App\Entity\CallRecording;
 use Aws\S3\S3Client;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class RecordingImportService
@@ -18,7 +17,7 @@ class RecordingImportService
         private readonly S3Client $s3Client,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
-        private readonly MessageBusInterface $messageBus,
+        private readonly TranscriptionJobService $transcriptionJobs,
         private readonly string $recordingsBucket,
         private readonly string $recordingsEnvironment,
         private readonly bool $transcriptionEnabled = false,
@@ -87,11 +86,13 @@ class RecordingImportService
                 ->setImportError(null)
                 ->setStatus('imported')
                 ->touch();
+            $this->transcriptionJobs->createPendingJobForRecording($recording);
             $this->entityManager->flush();
 
-            if ($this->transcriptionEnabled) {
+            if ($this->transcriptionEnabled && !$this->transcriptionJobs->shouldUseLocalWorker()) {
                 try {
-                    $this->messageBus->dispatch(new \App\Message\TranscribeRecordingMessage($recording->getId()));
+                    // TODO: Remove this legacy dispatch path once OpenAI/Messenger transcription is fully retired.
+                    throw new \RuntimeException('Legacy Messenger transcription path is disabled in this phase.');
                 } catch (\Throwable $exception) {
                     $this->logger->error('Recording import succeeded but transcription dispatch failed.', [
                         'recording_id' => $recording->getId(),

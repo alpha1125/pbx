@@ -10,6 +10,8 @@ use App\Repository\TelnyxEventRepository;
 use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
+use App\Service\ClientStateService;
+use App\Service\ClickToCallService;
 use App\Service\TelnyxRecordingProjectionService;
 use App\Service\TelnyxRecordingStartService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -42,6 +44,8 @@ final class TelnyxWebhookControllerTest extends TestCase
         $controller = new TelnyxWebhookController(
             new TelnyxCallControlService($httpClient, $logger, 'test-api-key'),
             new TelnyxCallStateService(new ArrayAdapter()),
+            $this->clickToCall(false),
+            new ClientStateService(),
             $logger,
             '+14168880123',
             '+12892079888',
@@ -204,6 +208,8 @@ final class TelnyxWebhookControllerTest extends TestCase
         $controller = new TelnyxWebhookController(
             new TelnyxCallControlService(new MockHttpClient(), $logger, 'test-api-key'),
             new TelnyxCallStateService(new ArrayAdapter()),
+            $this->clickToCall(false),
+            new ClientStateService(),
             $logger,
             '+14168880123',
             '+12892079888',
@@ -231,5 +237,13 @@ final class TelnyxWebhookControllerTest extends TestCase
                 ],
             ], JSON_THROW_ON_ERROR),
         );
+    }
+
+    private function clickToCall(bool $handled): ClickToCallService
+    {
+        $service = $this->createMock(ClickToCallService::class);
+        $service->method('handleWebhook')->willReturn($handled);
+
+        return $service;
     }
 }

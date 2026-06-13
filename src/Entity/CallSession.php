@@ -12,6 +12,9 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'call_session')]
 class CallSession
 {
+    public const FLOW_TYPE_INBOUND_FORWARD = 'inbound_forward';
+    public const FLOW_TYPE_CLICK_TO_CALL = 'click_to_call';
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type: Types::BIGINT)]
@@ -31,6 +34,9 @@ class CallSession
 
     #[ORM\Column(length: 50)]
     private string $status = 'initiated';
+
+    #[ORM\Column(length: 50, nullable: true)]
+    private ?string $flowType = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $startedAt = null;
@@ -121,6 +127,18 @@ class CallSession
     public function setStatus(string $status): static
     {
         $this->status = $status;
+
+        return $this;
+    }
+
+    public function getFlowType(): ?string
+    {
+        return $this->flowType;
+    }
+
+    public function setFlowType(?string $flowType): static
+    {
+        $this->flowType = $flowType;
 
         return $this;
     }

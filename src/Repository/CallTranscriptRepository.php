@@ -48,6 +48,18 @@ class CallTranscriptRepository extends ServiceEntityRepository
         return $this->findBy([], ['createdAt' => 'DESC'], $limit);
     }
 
+    public function hasTranscriptForRecording(CallRecording $recording): bool
+    {
+        return 0 < (int) $this->createQueryBuilder('transcript')
+            ->select('COUNT(transcript.id)')
+            ->andWhere('transcript.callRecording = :recording')
+            ->andWhere('transcript.status = :status')
+            ->setParameter('recording', $recording)
+            ->setParameter('status', 'available')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     public function hasCurrentForRecording(string $provider, string $model, CallRecording $recording): bool
     {
         return 0 < (int) $this->createQueryBuilder('transcript')

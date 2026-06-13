@@ -74,6 +74,10 @@ class CallRecording
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
     private ?array $rawPayload = null;
 
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    private ?array $channelMapping = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
@@ -122,6 +126,10 @@ class CallRecording
     public function getRawPayload(): ?array { return $this->rawPayload; }
     /** @param array<string, mixed>|null $payload */
     public function setRawPayload(?array $payload): static { $this->rawPayload = $payload; return $this; }
+    /** @return array<string, mixed>|null */
+    public function getChannelMapping(): ?array { return $this->channelMapping; }
+    /** @param array<string, mixed>|null $channelMapping */
+    public function setChannelMapping(?array $channelMapping): static { $this->channelMapping = $channelMapping; return $this; }
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
     public function touch(): static { $this->updatedAt = new \DateTimeImmutable(); return $this; }
 }

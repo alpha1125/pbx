@@ -9,6 +9,8 @@ use App\Repository\TelnyxEventRepository;
 use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
+use App\Service\ClientStateService;
+use App\Service\ClickToCallService;
 use App\Service\TelnyxRecordingProjectionService;
 use App\Service\TelnyxRecordingStartService;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -25,6 +27,8 @@ final class TelnyxWebhookController extends AbstractController
     public function __construct(
         private readonly TelnyxCallControlService $callControl,
         private readonly TelnyxCallStateService $callState,
+        private readonly ClickToCallService $clickToCall,
+        private readonly ClientStateService $clientState,
         private readonly LoggerInterface $logger,
         private readonly string $forwardToNumber,
         private readonly string $fromNumber,
@@ -155,6 +159,10 @@ final class TelnyxWebhookController extends AbstractController
             return;
         }
 
+        if ($this->clickToCall->handleWebhook($eventType, $eventPayload, $providerEventId)) {
+            return;
+        }
+
         $callControlId = $this->stringValue($eventPayload, 'call_control_id');
         $direction = $this->stringValue($eventPayload, 'direction');
 
@@ -167,7 +175,7 @@ final class TelnyxWebhookController extends AbstractController
                 $this->requiredStringValue($eventPayload, 'call_leg_id'),
                 $this->requiredStringValue($eventPayload, 'connection_id'),
             );
-            $this->callControl->answer($callControlId);
+            $this->callControl->answer($callControlId, sprintf('inbound-forward:%s:answer', $callSessionId));
 
             return;
         }
@@ -180,6 +188,8 @@ final class TelnyxWebhookController extends AbstractController
             $this->callControl->speak(
                 $callControlId,
                 'Thank you for calling FirstFire. Please hold while I connect you.',
+                null,
+                sprintf('inbound-forward:%s:speak-intro', $this->requiredStringValue($eventPayload, 'call_session_id')),
             );
 
             return;
@@ -214,6 +224,8 @@ final class TelnyxWebhookController extends AbstractController
                 $this->fromNumber,
                 $this->forwardToNumber,
                 $clientState,
+                null,
+                sprintf('inbound-forward:%s:dial', $callSessionId),
             );
 
             return;
@@ -238,7 +250,7 @@ final class TelnyxWebhookController extends AbstractController
                 return;
             }
 
-            $this->callControl->hangup($state['call_control_id']);
+            $this->callControl->hangup($state['call_control_id'], sprintf('inbound-forward:%s:hangup', $callSessionId));
 
             return;
         }
@@ -264,7 +276,11 @@ final class TelnyxWebhookController extends AbstractController
                 ));
             }
 
-            $this->callControl->bridge($state['call_control_id'], $callControlId);
+            $this->callControl->bridge(
+                $state['call_control_id'],
+                $callControlId,
+                sprintf('inbound-forward:%s:bridge', $callSessionId),
+            );
         }
     }
 
@@ -311,24 +327,7 @@ final class TelnyxWebhookController extends AbstractController
 
     private function inboundSessionIdFromClientState(?string $clientState): ?string
     {
-        if (null === $clientState) {
-            return null;
-        }
-
-        $decoded = base64_decode($clientState, true);
-        if (false === $decoded) {
-            return null;
-        }
-
-        try {
-            $state = json_decode($decoded, true, flags: JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return null;
-        }
-
-        if (!is_array($state)) {
-            return null;
-        }
+        $state = $this->clientState->decode($clientState);
 
         $callSessionId = $state['inbound_call_session_id'] ?? null;
 

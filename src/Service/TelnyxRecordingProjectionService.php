@@ -52,14 +52,15 @@ class TelnyxRecordingProjectionService
         if (null === $session) {
             throw new \RuntimeException('Recording webhook could not be linked to a call session.');
         }
+        $rootSession = $session->getParentCallSession() ?? $session;
 
         $providerRecordingId = $this->firstString($payload, ['recording_id', 'recordingId', 'id']);
         $recording = null !== $providerRecordingId
             ? $this->recordingRepository->findOneByProviderRecordingId($providerRecordingId)
             : null;
-        $recording ??= $this->recordingRepository->findRequested($session, $leg);
+        $recording ??= $this->recordingRepository->findRequested($rootSession, $leg);
         if (null === $recording) {
-            $recording = new CallRecording($session);
+            $recording = new CallRecording($rootSession);
             $recording->setCallLeg($leg);
             $this->entityManager->persist($recording);
         }
@@ -69,6 +70,7 @@ class TelnyxRecordingProjectionService
             ->setProviderRecordingId($providerRecordingId ?? $recording->getProviderRecordingId())
             ->setStatus($isSaved ? 'saved' : 'failed')
             ->setRawPayload($rawPayload)
+            ->setChannelMapping($recording->getChannelMapping() ?? $this->defaultChannelMapping($rootSession))
             ->touch();
 
         if ($isSaved) {
@@ -198,5 +200,28 @@ class TelnyxRecordingProjectionService
         } catch (\Exception) {
             return null;
         }
+    }
+
+    /**
+     * @return array<string, string>|null
+     */
+    private function defaultChannelMapping(CallSession $session): ?array
+    {
+        return match ($session->getFlowType()) {
+            CallSession::FLOW_TYPE_CLICK_TO_CALL => [
+                'flowType' => CallSession::FLOW_TYPE_CLICK_TO_CALL,
+                'ch_0' => 'agent',
+                'ch_1' => 'customer',
+                'confidence' => 'assumed_agent_dialed_first_verify_with_test_recording',
+                'notes' => 'For click-to-call, agent is dialed first and customer second. Verify left/right channel assignment empirically.',
+            ],
+            CallSession::FLOW_TYPE_INBOUND_FORWARD => [
+                'flowType' => CallSession::FLOW_TYPE_INBOUND_FORWARD,
+                'ch_0' => 'caller',
+                'ch_1' => 'forwarded_party',
+                'confidence' => 'observed',
+            ],
+            default => null,
+        };
     }
 }

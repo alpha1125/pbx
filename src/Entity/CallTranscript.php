@@ -29,11 +29,15 @@ class CallTranscript
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?CallSession $callSession = null;
 
-    #[ORM\Column(length: 50, options: ['default' => 'openai'])]
-    private string $provider = 'openai';
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?TranscriptionJob $transcriptionJob = null;
 
-    #[ORM\Column(length: 255)]
-    private string $model;
+    #[ORM\Column(length: 50, options: ['default' => 'local_worker'])]
+    private string $provider = 'local_worker';
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $model = null;
 
     #[ORM\Column(length: 50)]
     private string $status;
@@ -44,6 +48,10 @@ class CallTranscript
     /** @var array<string, mixed>|null */
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
     private ?array $rawResponse = null;
+
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    private ?array $channelMapping = null;
 
     #[ORM\Column(length: 32, nullable: true)]
     private ?string $language = null;
@@ -69,7 +77,7 @@ class CallTranscript
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $updatedAt;
 
-    public function __construct(CallRecording $callRecording, string $model, string $status = 'pending')
+    public function __construct(CallRecording $callRecording, ?string $model = null, string $status = 'available')
     {
         $this->callRecording = $callRecording;
         $this->callSession = $callRecording->getCallSession();
@@ -82,8 +90,13 @@ class CallTranscript
     public function getId(): ?int { return $this->id; }
     public function getCallRecording(): CallRecording { return $this->callRecording; }
     public function getCallSession(): ?CallSession { return $this->callSession; }
+    public function setCallSession(?CallSession $callSession): static { $this->callSession = $callSession; return $this; }
+    public function getTranscriptionJob(): ?TranscriptionJob { return $this->transcriptionJob; }
+    public function setTranscriptionJob(?TranscriptionJob $transcriptionJob): static { $this->transcriptionJob = $transcriptionJob; return $this; }
     public function getProvider(): string { return $this->provider; }
-    public function getModel(): string { return $this->model; }
+    public function setProvider(string $provider): static { $this->provider = $provider; return $this; }
+    public function getModel(): ?string { return $this->model; }
+    public function setModel(?string $model): static { $this->model = $model; return $this; }
     public function getStatus(): string { return $this->status; }
     public function setStatus(string $status): static { $this->status = $status; return $this; }
     public function getTranscriptText(): ?string { return $this->transcriptText; }
@@ -92,6 +105,10 @@ class CallTranscript
     public function getRawResponse(): ?array { return $this->rawResponse; }
     /** @param array<string, mixed>|null $rawResponse */
     public function setRawResponse(?array $rawResponse): static { $this->rawResponse = $rawResponse; return $this; }
+    /** @return array<string, mixed>|null */
+    public function getChannelMapping(): ?array { return $this->channelMapping; }
+    /** @param array<string, mixed>|null $channelMapping */
+    public function setChannelMapping(?array $channelMapping): static { $this->channelMapping = $channelMapping; return $this; }
     public function getLanguage(): ?string { return $this->language; }
     public function setLanguage(?string $language): static { $this->language = $language; return $this; }
     public function getDurationSeconds(): ?int { return $this->durationSeconds; }

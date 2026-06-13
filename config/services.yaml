@@ -10,8 +10,11 @@ parameters:
     telnyx_api_key: ''
     telnyx_forward_to_number: ''
     telnyx_from_number: '+12892079888'
+    telnyx_connection_id: ''
     telnyx_recording_enabled: true
     telnyx_recording_format: 'wav'
+    click_to_call_agent_number: ''
+    click_to_call_recording_enabled: true
     aws_recordings_bucket: 'firstfire-pbx-recordings-nonprod-839079494005-ca-central-1-an'
     aws_recordings_region: 'ca-central-1'
     aws_recordings_env: 'dev'
@@ -20,6 +23,12 @@ parameters:
     openai_transcription_model: 'gpt-4o-mini-transcribe'
     openai_transcription_enabled: true
     messenger_transport_dsn: 'redis://127.0.0.1:6379/transcription'
+    local_worker_enabled: false
+    local_worker_shared_secret: ''
+    ollama_base_url: 'http://100.115.177.42:11434'
+    ollama_summary_model: 'llama3.1'
+    stt_provider: 'local_worker'
+    transcription_job_lock_seconds: 900
 
 services:
     # default configuration for services in *this* file
@@ -52,6 +61,21 @@ services:
             $recordingsEnvironment: '%env(default:aws_recordings_env:AWS_RECORDINGS_ENV)%'
             $transcriptionEnabled: '%env(bool:default:openai_transcription_enabled:OPENAI_TRANSCRIPTION_ENABLED)%'
 
+    App\Service\TranscriptionJobService:
+        arguments:
+            $localWorkerEnabled: '%env(bool:default:local_worker_enabled:LOCAL_WORKER_ENABLED)%'
+            $sttProvider: '%env(default:stt_provider:STT_PROVIDER)%'
+            $lockSeconds: '%env(int:default:transcription_job_lock_seconds:TRANSCRIPTION_JOB_LOCK_SECONDS)%'
+
+    App\Service\WorkerApiAuthService:
+        arguments:
+            $sharedSecret: '%env(default:local_worker_shared_secret:LOCAL_WORKER_SHARED_SECRET)%'
+
+    App\Service\OllamaSummaryService:
+        arguments:
+            $baseUrl: '%env(default:ollama_base_url:OLLAMA_BASE_URL)%'
+            $model: '%env(default:ollama_summary_model:OLLAMA_SUMMARY_MODEL)%'
+
     App\Service\OpenAiTranscriptionService:
         arguments:
             $apiKey: '%env(default:openai_api_key:OPENAI_API_KEY)%'
@@ -70,6 +94,13 @@ services:
         arguments:
             $recordingEnabled: '%env(bool:default:telnyx_recording_enabled:TELNYX_RECORDING_ENABLED)%'
             $recordingFormat: '%env(default:telnyx_recording_format:TELNYX_RECORDING_FORMAT)%'
+
+    App\Service\ClickToCallService:
+        arguments:
+            $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
+            $connectionId: '%env(default:telnyx_connection_id:TELNYX_CONNECTION_ID)%'
+            $defaultAgentNumber: '%env(default:click_to_call_agent_number:CLICK_TO_CALL_AGENT_NUMBER)%'
+            $recordingEnabled: '%env(bool:default:click_to_call_recording_enabled:CLICK_TO_CALL_RECORDING_ENABLED)%'
 
     App\Controller\TelnyxWebhookController:
         arguments:

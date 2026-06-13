@@ -7,7 +7,6 @@ namespace App\Repository;
 use App\Entity\CallLeg;
 use App\Entity\CallRecording;
 use App\Entity\CallSession;
-use App\Repository\CallTranscriptRepository;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -82,5 +81,19 @@ class CallRecordingRepository extends ServiceEntityRepository
         }
 
         return $pending;
+    }
+
+    /** @return list<CallRecording> */
+    public function findImportedWithStorage(int $limit = 50): array
+    {
+        return $this->createQueryBuilder('recording')
+            ->andWhere('recording.status = :status')
+            ->andWhere('recording.s3Bucket IS NOT NULL')
+            ->andWhere('recording.s3Key IS NOT NULL')
+            ->orderBy('recording.importedAt', 'ASC')
+            ->setParameter('status', 'imported')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
     }
 }

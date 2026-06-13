@@ -13,6 +13,13 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_call_leg_call_control_id', columns: ['call_control_id'])]
 class CallLeg
 {
+    public const ROLE_CALLER = 'caller';
+    public const ROLE_CUSTOMER = 'customer';
+    public const ROLE_AGENT = 'agent';
+    public const ROLE_VENDOR = 'vendor';
+    public const ROLE_SYSTEM = 'system';
+    public const ROLE_UNKNOWN = 'unknown';
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type: Types::BIGINT)]
@@ -42,6 +49,12 @@ class CallLeg
 
     #[ORM\Column(length: 50)]
     private string $status = 'initiated';
+
+    #[ORM\Column(length: 50, nullable: true)]
+    private ?string $role = null;
+
+    #[ORM\Column(type: Types::INTEGER, nullable: true)]
+    private ?int $dialOrder = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $startedAt = null;
@@ -161,6 +174,30 @@ class CallLeg
     public function setStatus(string $status): static
     {
         $this->status = $status;
+
+        return $this;
+    }
+
+    public function getRole(): ?string
+    {
+        return $this->role;
+    }
+
+    public function setRole(?string $role): static
+    {
+        $this->role = $role;
+
+        return $this;
+    }
+
+    public function getDialOrder(): ?int
+    {
+        return $this->dialOrder;
+    }
+
+    public function setDialOrder(?int $dialOrder): static
+    {
+        $this->dialOrder = $dialOrder;
 
         return $this;
     }
