@@ -7,6 +7,19 @@
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
+    telnyx_api_key: ''
+    telnyx_forward_to_number: ''
+    telnyx_from_number: '+12892079888'
+    telnyx_recording_enabled: true
+    telnyx_recording_format: 'wav'
+    aws_recordings_bucket: 'firstfire-pbx-recordings-nonprod-839079494005-ca-central-1-an'
+    aws_recordings_region: 'ca-central-1'
+    aws_recordings_env: 'dev'
+    aws_presigned_url_ttl_seconds: 900
+    openai_api_key: ''
+    openai_transcription_model: 'gpt-4o-mini-transcribe'
+    openai_transcription_enabled: true
+    messenger_transport_dsn: 'redis://127.0.0.1:6379/transcription'
 
 services:
     # default configuration for services in *this* file
@@ -18,6 +31,58 @@ services:
     # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
+
+    App\Service\TelnyxCallControlService:
+        arguments:
+            $apiKey: '%env(default:telnyx_api_key:TELNYX_API_KEY)%'
+
+    Aws\S3\S3Client:
+        arguments:
+            -
+                version: 'latest'
+                region: '%env(default:aws_recordings_region:AWS_RECORDINGS_REGION)%'
+
+    App\Service\RecordingStorageService:
+        arguments:
+            $presignedUrlTtlSeconds: '%env(int:default:aws_presigned_url_ttl_seconds:AWS_PRESIGNED_URL_TTL_SECONDS)%'
+
+    App\Service\RecordingImportService:
+        arguments:
+            $recordingsBucket: '%env(default:aws_recordings_bucket:AWS_RECORDINGS_BUCKET)%'
+            $recordingsEnvironment: '%env(default:aws_recordings_env:AWS_RECORDINGS_ENV)%'
+            $transcriptionEnabled: '%env(bool:default:openai_transcription_enabled:OPENAI_TRANSCRIPTION_ENABLED)%'
+
+    App\Service\OpenAiTranscriptionService:
+        arguments:
+            $apiKey: '%env(default:openai_api_key:OPENAI_API_KEY)%'
+            $model: '%env(default:openai_transcription_model:OPENAI_TRANSCRIPTION_MODEL)%'
+
+    App\MessageHandler\TranscribeRecordingMessageHandler:
+        arguments:
+            $transcriptionEnabled: '%env(bool:default:openai_transcription_enabled:OPENAI_TRANSCRIPTION_ENABLED)%'
+            $transcriptionModel: '%env(default:openai_transcription_model:OPENAI_TRANSCRIPTION_MODEL)%'
+
+    App\Command\StartPendingTranscriptionsCommand:
+        arguments:
+            $model: '%env(default:openai_transcription_model:OPENAI_TRANSCRIPTION_MODEL)%'
+
+    App\Service\TelnyxRecordingStartService:
+        arguments:
+            $recordingEnabled: '%env(bool:default:telnyx_recording_enabled:TELNYX_RECORDING_ENABLED)%'
+            $recordingFormat: '%env(default:telnyx_recording_format:TELNYX_RECORDING_FORMAT)%'
+
+    App\Controller\TelnyxWebhookController:
+        arguments:
+            $forwardToNumber: '%env(default:telnyx_forward_to_number:TELNYX_FORWARD_TO_NUMBER)%'
+            $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
+
+    App\Controller\RecordingDownloadController:
+        arguments:
+            $environment: '%kernel.environment%'
+
+    App\Controller\TranscriptDetailsController:
+        arguments:
+            $environment: '%kernel.environment%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

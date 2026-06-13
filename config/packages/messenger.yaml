@@ -3,14 +3,19 @@ framework:
         failure_transport: failed
 
         transports:
-            # https://symfony.com/doc/current/messenger.html#transport-configuration
             async:
-                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                dsn: '%env(default:messenger_transport_dsn:MESSENGER_TRANSPORT_DSN)%'
                 retry_strategy:
                     max_retries: 3
+                    delay: 1000
+                    multiplier: 2
+            transcription:
+                dsn: '%env(default:messenger_transport_dsn:MESSENGER_TRANSPORT_DSN)%'
+                retry_strategy:
+                    max_retries: 3
+                    delay: 60000
                     multiplier: 2
             failed: 'doctrine://default?queue_name=failed'
-            # sync: 'sync://'
 
         default_bus: messenger.bus.default
 
@@ -21,6 +26,5 @@ framework:
             Symfony\Component\Mailer\Messenger\SendEmailMessage: async
             Symfony\Component\Notifier\Message\ChatMessage: async
             Symfony\Component\Notifier\Message\SmsMessage: async
-
-            # Route your messages to the transports
-            # 'App\Message\YourMessage': async
+            App\Message\PingTranscriptionMessage: transcription
+            App\Message\TranscribeRecordingMessage: transcription
