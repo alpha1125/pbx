@@ -6,8 +6,11 @@ namespace App\Controller\Crm;
 
 use App\Repository\ContactRepository;
 use App\Repository\PropertyRepository;
+use App\Entity\UserTenantMembership;
+use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\CrmClickToCallService;
 use App\Service\CurrentTenantProviderInterface;
+use App\Service\TenantMembershipAccessService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -26,14 +29,23 @@ final class CrmClickToCallController extends AbstractController
         PropertyRepository $propertyRepository,
         ContactRepository $contactRepository,
         CrmClickToCallService $crmClickToCallService,
+        TenantMembershipAccessService $membershipAccess,
     ): JsonResponse|RedirectResponse {
         $tenant = $tenantProvider->requireCurrentTenant();
+        $membershipAccess->requireAnyRole([
+            UserTenantMembership::ROLE_TENANT_ADMIN,
+            UserTenantMembership::ROLE_DISPATCH,
+            UserTenantMembership::ROLE_SALES,
+        ]);
         $property = $propertyRepository->findOneByTenantAndId($tenant, $propertyId);
         $contact = $contactRepository->findOneByTenantAndId($tenant, $contactId);
 
         if (null === $property || null === $contact) {
             return $this->respond($request, $propertyId, ['ok' => false, 'error' => 'Property or contact not found.'], Response::HTTP_NOT_FOUND);
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
         $token = $request->request->get('_token');
         if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_click_to_call_'.$property->getId().'_'.$contact->getId(), $token)) {

@@ -7,6 +7,7 @@ namespace App\Controller\Crm;
 use App\Entity\EstimateLineItem;
 use App\Repository\EstimateLineItemRepository;
 use App\Repository\EstimateRepository;
+use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\EstimateToQuoteService;
@@ -33,6 +34,8 @@ final class EstimateController extends AbstractController
             throw $this->createNotFoundException('Estimate not found.');
         }
 
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $estimate);
+
         return $this->render('crm/estimate/show.html.twig', [
             'tenant' => $tenant,
             'estimate' => $estimate,
@@ -56,6 +59,8 @@ final class EstimateController extends AbstractController
         if (null === $estimate) {
             throw $this->createNotFoundException('Estimate not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $estimate);
 
         if (!$this->isCsrfTokenValid('estimate_line_item_'.$estimate->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');
@@ -115,6 +120,8 @@ final class EstimateController extends AbstractController
         if (null === $estimate) {
             throw $this->createNotFoundException('Estimate not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $estimate);
 
         if (!$this->isCsrfTokenValid('estimate_convert_'.$estimate->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');

@@ -1,0 +1,89 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_property_show', {id: property.id}) }}">Back to Property</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-1">{{ title }}</h1>
+                    <p class="text-body-secondary mb-4">{{ property.displayAddress }}</p>
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_equipment_form') }}">
+                        <div class="col-md-6">
+                            <label class="form-label" for="equipmentType">Equipment Type</label>
+                            <select class="form-select" id="equipmentType" name="equipmentType">
+                                {% for value, label in {
+                                    furnace: 'Furnace',
+                                    air_conditioner: 'Air Conditioner',
+                                    heat_pump: 'Heat Pump',
+                                    evaporator_coil: 'Evaporator Coil',
+                                    thermostat: 'Thermostat',
+                                    humidifier: 'Humidifier',
+                                    erv: 'ERV',
+                                    hrv: 'HRV',
+                                    water_heater: 'Water Heater',
+                                    other: 'Other'
+                                } %}
+                                    <option value="{{ value }}" {% if equipment.equipmentType == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="status">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                {% for value, label in {
+                                    active: 'Active',
+                                    replaced: 'Replaced',
+                                    removed: 'Removed',
+                                    unknown: 'Unknown'
+                                } %}
+                                    <option value="{{ value }}" {% if equipment.status == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="brand">Brand</label>
+                            <input class="form-control" id="brand" name="brand" value="{{ equipment.brand }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="modelNumber">Model Number</label>
+                            <input class="form-control" id="modelNumber" name="modelNumber" value="{{ equipment.modelNumber }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="serialNumber">Serial Number</label>
+                            <input class="form-control" id="serialNumber" name="serialNumber" value="{{ equipment.serialNumber }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="installedAt">Installed At</label>
+                            <input class="form-control" id="installedAt" name="installedAt" type="date" value="{{ equipment.installedAt ? equipment.installedAt|date('Y-m-d') : '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="warrantyExpiresAt">Warranty Expires At</label>
+                            <input class="form-control" id="warrantyExpiresAt" name="warrantyExpiresAt" type="date" value="{{ equipment.warrantyExpiresAt ? equipment.warrantyExpiresAt|date('Y-m-d') : '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="4">{{ equipment.notes }}</textarea>
+                        </div>
+                        {% include 'crm/_form_actions.html.twig' with {
+                            cancelPath: path('crm_property_show', {id: property.id}),
+                            submitLabel: 'Save Equipment'
+                        } only %}
+                    </form>
+                    {% if equipment.id %}
+                        <hr class="my-4">
+                        <form method="post" action="{{ path('crm_equipment_archive', {propertyId: property.id, equipmentId: equipment.id}) }}">
+                            <input type="hidden" name="_token" value="{{ csrf_token('crm_equipment_archive_' ~ equipment.id) }}">
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-danger" type="submit" onclick="return confirm('Archive this equipment record?')">Archive Equipment</button>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

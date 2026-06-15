@@ -39,6 +39,8 @@ security:
         - { path: ^/login, roles: PUBLIC_ACCESS }
         - { path: ^/logout, roles: PUBLIC_ACCESS }
         - { path: ^/api/, roles: PUBLIC_ACCESS }
+        - { path: ^/transcripts, roles: ROLE_USER }
+        - { path: ^/recordings, roles: ROLE_USER }
         - { path: ^/crm, roles: ROLE_USER }
 
 when@test:

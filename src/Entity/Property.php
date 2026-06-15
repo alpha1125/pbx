@@ -68,6 +68,12 @@ class Property
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $notes = null;
 
+    #[ORM\Column(options: ['default' => false])]
+    private bool $isArchived = false;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $archivedAt = null;
+
     public function __construct(
         Tenant $tenant,
         string $addressLine1,
@@ -105,6 +111,10 @@ class Property
     public function setYearBuilt(?int $yearBuilt): static { $this->yearBuilt = $yearBuilt; return $this; }
     public function getNotes(): ?string { return $this->notes; }
     public function setNotes(?string $notes): static { $this->notes = $notes; return $this; }
+    public function isArchived(): bool { return $this->isArchived; }
+    public function archive(): static { $this->isArchived = true; $this->archivedAt = new \DateTimeImmutable(); return $this; }
+    public function restore(): static { $this->isArchived = false; $this->archivedAt = null; return $this; }
+    public function getArchivedAt(): ?\DateTimeImmutable { return $this->archivedAt; }
 
     public function getDisplayAddress(): string
     {

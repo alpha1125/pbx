@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use App\Entity\Tenant;
 use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -31,6 +32,33 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         $user->setPassword($newHashedPassword);
         $this->getEntityManager()->persist($user);
         $this->getEntityManager()->flush();
+    }
+
+    /** @return list<User> */
+    public function findByTenant(Tenant $tenant, int $page = 1, int $pageSize = 20): array
+    {
+        return $this->createQueryBuilder('user')
+            ->innerJoin('App\Entity\UserTenantMembership', 'membership', 'WITH', 'membership.user = user')
+            ->andWhere('membership.tenant = :tenant')
+            ->andWhere('user.isActive = true')
+            ->setParameter('tenant', $tenant)
+            ->orderBy('user.email', 'ASC')
+            ->setFirstResult(max(0, ($page - 1) * $pageSize))
+            ->setMaxResults($pageSize)
+            ->getQuery()
+            ->getResult();
+    }
+
+    public function countByTenant(Tenant $tenant): int
+    {
+        return (int) $this->createQueryBuilder('user')
+            ->select('COUNT(DISTINCT user.id)')
+            ->innerJoin('App\Entity\UserTenantMembership', 'membership', 'WITH', 'membership.user = user')
+            ->andWhere('membership.tenant = :tenant')
+            ->andWhere('user.isActive = true')
+            ->setParameter('tenant', $tenant)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     //    /**

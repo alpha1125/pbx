@@ -1,0 +1,99 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Profile{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                    <h1 class="h2 mb-1">Profile</h1>
+                    <p class="text-body-secondary mb-0">Manage your contact details and default HVAC company.</p>
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <form method="post" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_profile') }}">
+
+                        <div class="col-md-6">
+                            <label for="firstName" class="form-label">First Name</label>
+                            <input id="firstName" name="firstName" class="form-control" value="{{ user.firstName ?? '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="lastName" class="form-label">Last Name</label>
+                            <input id="lastName" name="lastName" class="form-control" value="{{ user.lastName ?? '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="displayName" class="form-label">Display Name</label>
+                            <input id="displayName" name="displayName" class="form-control" value="{{ user.displayName }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="cellPhone" class="form-label">Cell Phone</label>
+                            <input id="cellPhone" name="cellPhone" class="form-control" value="{{ user.cellPhone ?? '' }}">
+                        </div>
+
+                        <div class="col-12">
+                            <label for="email" class="form-label">Email</label>
+                            <input id="email" class="form-control" value="{{ user.email }}" disabled>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="defaultTenantId" class="form-label">Default HVAC Company</label>
+                            <select id="defaultTenantId" name="defaultTenantId" class="form-select" {% if activeMemberships is empty %}disabled{% endif %}>
+                                {% for membership in activeMemberships %}
+                                    <option value="{{ membership.tenant.id }}" {% if membership.isDefault %}selected{% endif %}>
+                                        {{ membership.tenant.name }}
+                                    </option>
+                                {% else %}
+                                    <option>No active memberships available</option>
+                                {% endfor %}
+                            </select>
+                            {% if currentTenant %}
+                                <div class="form-text">Current active tenant: {{ currentTenant.name }}</div>
+                            {% elseif activeMemberships is empty %}
+                                <div class="form-text">A tenant admin must add this user to an HVAC company before CRM data is available.</div>
+                            {% endif %}
+                        </div>
+
+                        {% if pendingMemberships is not empty %}
+                            <div class="col-12">
+                                <div class="alert alert-warning mb-0">
+                                    Pending invitations:
+                                    {% for membership in pendingMemberships %}
+                                        {{ membership.tenant.name }}{% if not loop.last %}, {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <div class="col-12"><hr class="my-2"></div>
+
+                        <div class="col-md-4">
+                            <label for="currentPassword" class="form-label">Current Password</label>
+                            <input id="currentPassword" name="currentPassword" class="form-control" type="password" autocomplete="current-password">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="newPassword" class="form-label">New Password</label>
+                            <input id="newPassword" name="newPassword" class="form-control" type="password" autocomplete="new-password">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="confirmNewPassword" class="form-label">Confirm New Password</label>
+                            <input id="confirmNewPassword" name="confirmNewPassword" class="form-control" type="password" autocomplete="new-password">
+                        </div>
+
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Save Profile</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

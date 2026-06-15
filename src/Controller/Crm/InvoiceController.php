@@ -7,6 +7,7 @@ namespace App\Controller\Crm;
 use App\Entity\Invoice;
 use App\Repository\InvoiceLineItemRepository;
 use App\Repository\InvoiceRepository;
+use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CurrentTenantProviderInterface;
 use Doctrine\ORM\EntityManagerInterface;
@@ -31,6 +32,8 @@ final class InvoiceController extends AbstractController
             throw $this->createNotFoundException('Invoice not found.');
         }
 
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $invoice);
+
         return $this->render('crm/invoice/show.html.twig', [
             'tenant' => $tenant,
             'invoice' => $invoice,
@@ -52,6 +55,8 @@ final class InvoiceController extends AbstractController
         if (null === $invoice) {
             throw $this->createNotFoundException('Invoice not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $invoice);
 
         if (!$this->isCsrfTokenValid('invoice_status_'.$invoice->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');

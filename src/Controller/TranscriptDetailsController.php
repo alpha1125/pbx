@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\CallTranscript;
 use App\Repository\CallTranscriptRepository;
 use App\Repository\CallTranscriptSegmentRepository;
+use App\Security\Voter\TenantScopedEntityVoter;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -13,11 +15,6 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class TranscriptDetailsController extends AbstractController
 {
-    public function __construct(
-        private readonly string $environment,
-    ) {
-    }
-
     #[Route('/transcripts/{id<\d+>}', name: 'transcript_details', methods: ['GET'])]
     public function __invoke(
         int $id,
@@ -25,15 +22,12 @@ final class TranscriptDetailsController extends AbstractController
         CallTranscriptSegmentRepository $segments,
     ): JsonResponse
     {
-        if ('dev' !== $this->environment) {
-            throw $this->createNotFoundException();
-        }
-
-        // TODO: Enforce tenant ownership and RBAC before enabling this endpoint in production.
         $transcript = $repository->find($id);
         if (null === $transcript) {
             throw $this->createNotFoundException('Transcript not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $transcript);
 
         return $this->json([
             'id' => $transcript->getId(),
@@ -69,14 +63,12 @@ final class TranscriptDetailsController extends AbstractController
         CallTranscriptRepository $repository,
         CallTranscriptSegmentRepository $segments,
     ): Response {
-        if ('dev' !== $this->environment) {
-            throw $this->createNotFoundException();
-        }
-
         $transcript = $repository->find($id);
         if (null === $transcript) {
             throw $this->createNotFoundException('Transcript not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $transcript);
 
         $messages = [];
 

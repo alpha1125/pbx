@@ -1,0 +1,42 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}No Active Tenant{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h1 class="h3 mb-3">No active HVAC company</h1>
+                    {% if memberships is empty %}
+                        <p class="text-body-secondary mb-4">Your user account does not currently belong to any HVAC company. A tenant admin needs to add you to a company before the CRM can be used.</p>
+                    {% else %}
+                        <p class="text-body-secondary mb-4">
+                            {% if activeMemberships is not empty %}
+                                Your account has memberships, but none is currently active. Use your profile to select a default HVAC company.
+                            {% else %}
+                                Your account only has pending invitations right now. Accept the invitation link from your tenant admin before CRM access is enabled.
+                            {% endif %}
+                        </p>
+                        <ul class="list-group mb-4">
+                            {% for membership in memberships %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span>{{ membership.tenant.name }}</span>
+                                    <div class="d-flex gap-2">
+                                    {% if membership.isPending %}
+                                        <span class="badge text-bg-warning">Pending</span>
+                                    {% endif %}
+                                    {% if membership.isDefault %}
+                                        <span class="badge text-bg-primary">Default</span>
+                                    {% endif %}
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    <a class="btn btn-primary" href="{{ path('crm_profile') }}">Open Profile</a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

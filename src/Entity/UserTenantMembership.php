@@ -14,6 +14,14 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_user_tenant_membership_tenant', columns: ['tenant_id'])]
 class UserTenantMembership
 {
+    public const ROLE_TENANT_ADMIN = 'ROLE_TENANT_ADMIN';
+    public const ROLE_DISPATCH = 'ROLE_DISPATCH';
+    public const ROLE_SALES = 'ROLE_SALES';
+    public const ROLE_ACCOUNTING = 'ROLE_ACCOUNTING';
+    public const ROLE_TECHNICIAN = 'ROLE_TECHNICIAN';
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_ACTIVE = 'active';
+
     use TimestampableTrait;
 
     #[ORM\Id]
@@ -35,6 +43,18 @@ class UserTenantMembership
 
     #[ORM\Column(options: ['default' => false])]
     private bool $isDefault = false;
+
+    #[ORM\Column(length: 20, options: ['default' => self::STATUS_ACTIVE])]
+    private string $status = self::STATUS_ACTIVE;
+
+    #[ORM\Column(length: 64, nullable: true, unique: true)]
+    private ?string $inviteToken = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $invitedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $acceptedAt = null;
 
     public function __construct(User $user, Tenant $tenant)
     {
@@ -72,6 +92,11 @@ class UserTenantMembership
         return $this;
     }
 
+    public function hasRole(string $role): bool
+    {
+        return in_array($role, $this->roles, true);
+    }
+
     public function isDefault(): bool
     {
         return $this->isDefault;
@@ -80,6 +105,63 @@ class UserTenantMembership
     public function setIsDefault(bool $isDefault): static
     {
         $this->isDefault = $isDefault;
+
+        return $this;
+    }
+
+    public function getStatus(): string
+    {
+        return $this->status;
+    }
+
+    public function setStatus(string $status): static
+    {
+        $this->status = trim($status);
+
+        return $this;
+    }
+
+    public function isActive(): bool
+    {
+        return self::STATUS_ACTIVE === $this->status;
+    }
+
+    public function isPending(): bool
+    {
+        return self::STATUS_PENDING === $this->status;
+    }
+
+    public function getInviteToken(): ?string
+    {
+        return $this->inviteToken;
+    }
+
+    public function getInvitedAt(): ?\DateTimeImmutable
+    {
+        return $this->invitedAt;
+    }
+
+    public function getAcceptedAt(): ?\DateTimeImmutable
+    {
+        return $this->acceptedAt;
+    }
+
+    public function markInvited(string $inviteToken, ?\DateTimeImmutable $invitedAt = null): static
+    {
+        $this->status = self::STATUS_PENDING;
+        $this->inviteToken = trim($inviteToken);
+        $this->invitedAt = $invitedAt ?? new \DateTimeImmutable();
+        $this->acceptedAt = null;
+        $this->isDefault = false;
+
+        return $this;
+    }
+
+    public function accept(?\DateTimeImmutable $acceptedAt = null): static
+    {
+        $this->status = self::STATUS_ACTIVE;
+        $this->acceptedAt = $acceptedAt ?? new \DateTimeImmutable();
+        $this->inviteToken = null;
 
         return $this;
     }

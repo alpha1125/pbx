@@ -20,18 +20,19 @@ class ContactRepository extends ServiceEntityRepository
     /** @return list<Contact> */
     public function findByTenant(Tenant $tenant): array
     {
-        return $this->findBy(['tenant' => $tenant], ['displayName' => 'ASC']);
+        return $this->findBy(['tenant' => $tenant, 'isArchived' => false], ['displayName' => 'ASC']);
     }
 
     public function findOneByTenantAndId(Tenant $tenant, int $id): ?Contact
     {
-        return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
+        return $this->findOneBy(['tenant' => $tenant, 'id' => $id, 'isArchived' => false]);
     }
 
     public function findOneForRfqCustomer(Tenant $tenant, ?string $email, ?string $phone, ?string $displayName): ?Contact
     {
         $qb = $this->createQueryBuilder('contact')
             ->andWhere('contact.tenant = :tenant')
+            ->andWhere('contact.isArchived = false')
             ->setParameter('tenant', $tenant)
             ->setMaxResults(1);
 

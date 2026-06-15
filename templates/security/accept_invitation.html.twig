@@ -1,0 +1,62 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Accept Invitation{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h1 class="h3 mb-2">Accept Invitation</h1>
+                    <p class="text-body-secondary mb-4">
+                        Join <span class="fw-semibold">{{ membership.tenant.name }}</span> as
+                        <span class="fw-semibold">{{ membership.user.email }}</span>.
+                    </p>
+
+                    {% for error in errors %}
+                        <div class="alert alert-danger">{{ error }}</div>
+                    {% endfor %}
+
+                    <form method="post" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('accept_invitation_' ~ membership.id) }}">
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="firstName">First Name</label>
+                            <input class="form-control" id="firstName" name="firstName" value="{{ user.firstName ?? '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="lastName">Last Name</label>
+                            <input class="form-control" id="lastName" name="lastName" value="{{ user.lastName ?? '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="displayName">Display Name</label>
+                            <input class="form-control" id="displayName" name="displayName" value="{{ user.displayName }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="cellPhone">Cell Phone</label>
+                            <input class="form-control" id="cellPhone" name="cellPhone" value="{{ user.cellPhone ?? '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="newPassword">Password{% if user.isActive %} (optional){% endif %}</label>
+                            <input class="form-control" id="newPassword" name="newPassword" type="password" autocomplete="new-password">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="confirmNewPassword">Confirm Password</label>
+                            <input class="form-control" id="confirmNewPassword" name="confirmNewPassword" type="password" autocomplete="new-password">
+                        </div>
+
+                        <div class="col-12 d-flex gap-2">
+                            <button class="btn btn-primary" type="submit">Accept Invitation</button>
+                            <a class="btn btn-outline-secondary" href="{{ path('app_login') }}">Back to Login</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

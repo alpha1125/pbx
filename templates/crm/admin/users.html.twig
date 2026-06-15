@@ -1,0 +1,147 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Tenant Users{% endblock %}
+
+{% block body %}
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h1 class="h4 mb-1">Tenant Users</h1>
+                    <p class="text-body-secondary mb-4">{{ tenant.name }}</p>
+                    <form method="post" action="{{ path('crm_admin_users') }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_admin_user_create') }}">
+                        <div class="col-12">
+                            <label class="form-label" for="email">Email</label>
+                            <input class="form-control" id="email" name="email" type="email" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="displayName">Display Name</label>
+                            <input class="form-control" id="displayName" name="displayName">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="cellPhone">Cell Phone</label>
+                            <input class="form-control" id="cellPhone" name="cellPhone">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Tenant Roles</label>
+                            <div class="row g-2">
+                                {% for value, label in roleOptions %}
+                                    <div class="col-sm-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="create-role-{{ loop.index }}" type="checkbox" name="roles[]" value="{{ value }}" {% if value == 'ROLE_SALES' %}checked{% endif %}>
+                                            <label class="form-check-label" for="create-role-{{ loop.index }}">{{ label }}</label>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Add User</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Status</th>
+                                <th>Roles</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for membership in memberships %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ membership.user.displayName }}</div>
+                                        <div class="small text-body-secondary">{{ membership.user.email }}</div>
+                                    </td>
+                                    <td>
+                                        <div>{{ membership.user.cellPhone ?: 'No phone' }}</div>
+                                        {% if membership.isPending %}
+                                            <div class="small text-body-secondary">Invited {{ membership.invitedAt ? membership.invitedAt|date('Y-m-d H:i') : 'recently' }}</div>
+                                        {% else %}
+                                            <div class="small text-body-secondary">Active membership</div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <form method="post" action="{{ path('crm_admin_user_roles', {membershipId: membership.id}) }}" class="d-grid gap-2">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('crm_admin_user_roles_' ~ membership.id) }}">
+                                            <div class="row g-2">
+                                                {% for value, label in roleOptions %}
+                                                    <div class="col-12 col-xl-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" id="role-{{ membership.id }}-{{ loop.index }}" type="checkbox" name="roles[]" value="{{ value }}" {% if value in membership.roles %}checked{% endif %}>
+                                                            <label class="form-check-label" for="role-{{ membership.id }}-{{ loop.index }}">{{ label }}</label>
+                                                        </div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                            <div>
+                                                <button class="btn btn-sm btn-outline-primary" type="submit">Save Roles</button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                    <td class="text-end">
+                                        {% if membership.isPending %}
+                                            <span class="badge text-bg-warning">Pending</span>
+                                        {% else %}
+                                            <span class="badge text-bg-success">Active</span>
+                                        {% endif %}
+                                        {% if membership.isDefault %}
+                                            <span class="badge text-bg-primary">Default</span>
+                                        {% endif %}
+                                        {% if membership.inviteToken %}
+                                            <div class="small mt-2 text-start">
+                                                <label class="form-label mb-1" for="invite-link-{{ membership.id }}">Invite Link</label>
+                                                <input id="invite-link-{{ membership.id }}" class="form-control form-control-sm" value="{{ url('app_invitation_accept', {token: membership.inviteToken}) }}" readonly onclick="this.select();">
+                                            </div>
+                                            <form method="post" action="{{ path('crm_admin_user_reinvite', {membershipId: membership.id}) }}" class="mt-2">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_admin_user_reinvite_' ~ membership.id) }}">
+                                                <button class="btn btn-sm btn-outline-secondary" type="submit">Refresh Invite</button>
+                                            </form>
+                                        {% endif %}
+                                        <form method="post" action="{{ path('crm_admin_user_remove', {membershipId: membership.id}) }}" class="mt-2">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('crm_admin_user_remove_' ~ membership.id) }}">
+                                            <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Remove this user from the tenant?')">Remove</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-body-secondary py-4">No tenant users yet.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if totalMemberships > pageSize %}
+                {% set totalPages = (totalMemberships / pageSize)|round(0, 'ceil') %}
+                <nav class="mt-4" aria-label="Tenant user pagination">
+                    <ul class="pagination mb-0">
+                        <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_admin_users', {page: page - 1}) }}">Previous</a>
+                        </li>
+                        {% for currentPage in 1..totalPages %}
+                            <li class="page-item {{ currentPage == page ? 'active' : '' }}">
+                                <a class="page-link" href="{{ path('crm_admin_users', {page: currentPage}) }}">{{ currentPage }}</a>
+                            </li>
+                        {% endfor %}
+                        <li class="page-item {{ page >= totalPages ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_admin_users', {page: page + 1}) }}">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

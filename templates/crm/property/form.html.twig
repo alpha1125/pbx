@@ -1,0 +1,63 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <a class="link-secondary text-decoration-none" href="{{ property.id ? path('crm_property_show', {id: property.id}) : path('crm_property_index') }}">Back</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-4">{{ title }}</h1>
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_property_form') }}">
+                        <div class="col-12">
+                            <label class="form-label" for="addressLine1">Address Line 1</label>
+                            <input class="form-control" id="addressLine1" name="addressLine1" value="{{ property.addressLine1 }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="addressLine2">Address Line 2</label>
+                            <input class="form-control" id="addressLine2" name="addressLine2" value="{{ property.addressLine2 }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="city">City</label>
+                            <input class="form-control" id="city" name="city" value="{{ property.city }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="province">Province</label>
+                            <input class="form-control" id="province" name="province" value="{{ property.province }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="postalCode">Postal Code</label>
+                            <input class="form-control" id="postalCode" name="postalCode" value="{{ property.postalCode }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label" for="country">Country</label>
+                            <input class="form-control" id="country" name="country" value="{{ property.country }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="propertyType">Property Type</label>
+                            <input class="form-control" id="propertyType" name="propertyType" value="{{ property.propertyType }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="approximateSquareFeet">Approx. Sq Ft</label>
+                            <input class="form-control" id="approximateSquareFeet" name="approximateSquareFeet" value="{{ property.approximateSquareFeet }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="yearBuilt">Year Built</label>
+                            <input class="form-control" id="yearBuilt" name="yearBuilt" value="{{ property.yearBuilt }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="4">{{ property.notes }}</textarea>
+                        </div>
+                        {% include 'crm/_form_actions.html.twig' with {
+                            cancelPath: property.id ? path('crm_property_show', {id: property.id}) : path('crm_property_index'),
+                            submitLabel: 'Save Property'
+                        } only %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

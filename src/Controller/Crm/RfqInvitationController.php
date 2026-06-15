@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Crm;
 
 use App\Repository\RfqInvitationRepository;
+use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\RfqAcceptanceService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -42,6 +43,8 @@ final class RfqInvitationController extends AbstractController
             throw $this->createNotFoundException('RFQ invitation not found.');
         }
 
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $invitation);
+
         if (!$this->isCsrfTokenValid('accept_rfq_invitation_'.$invitation->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');
         }
@@ -64,6 +67,8 @@ final class RfqInvitationController extends AbstractController
         if (null === $invitation) {
             throw $this->createNotFoundException('RFQ invitation not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $invitation);
 
         if (!$this->isCsrfTokenValid('decline_rfq_invitation_'.$invitation->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');

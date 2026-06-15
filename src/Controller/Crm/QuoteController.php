@@ -7,6 +7,7 @@ namespace App\Controller\Crm;
 use App\Entity\Quote;
 use App\Repository\QuoteLineItemRepository;
 use App\Repository\QuoteRepository;
+use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\QuoteToInvoiceService;
@@ -32,6 +33,8 @@ final class QuoteController extends AbstractController
             throw $this->createNotFoundException('Quote not found.');
         }
 
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $quote);
+
         return $this->render('crm/quote/show.html.twig', [
             'tenant' => $tenant,
             'quote' => $quote,
@@ -53,6 +56,8 @@ final class QuoteController extends AbstractController
         if (null === $quote) {
             throw $this->createNotFoundException('Quote not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $quote);
 
         if (!$this->isCsrfTokenValid('quote_status_'.$quote->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');
@@ -107,6 +112,8 @@ final class QuoteController extends AbstractController
         if (null === $quote) {
             throw $this->createNotFoundException('Quote not found.');
         }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $quote);
 
         if (!$this->isCsrfTokenValid('quote_convert_'.$quote->getId(), (string) $request->request->get('_token'))) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');

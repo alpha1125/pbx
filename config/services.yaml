@@ -155,6 +155,7 @@ services:
 
     App\Service\CurrentTenantProvider:
         arguments:
+            $environment: '%kernel.environment%'
             $defaultTenantId: '%env(default:crm_default_tenant_id:CRM_DEFAULT_TENANT_ID)%'
             $defaultTenantName: '%env(default:crm_default_tenant_name:CRM_DEFAULT_TENANT_NAME)%'
 
@@ -162,14 +163,6 @@ services:
         arguments:
             $forwardToNumber: '%env(default:telnyx_forward_to_number:TELNYX_FORWARD_TO_NUMBER)%'
             $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
-
-    App\Controller\RecordingDownloadController:
-        arguments:
-            $environment: '%kernel.environment%'
-
-    App\Controller\TranscriptDetailsController:
-        arguments:
-            $environment: '%kernel.environment%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

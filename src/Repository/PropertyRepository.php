@@ -18,19 +18,33 @@ class PropertyRepository extends ServiceEntityRepository
     }
 
     /** @return list<Property> */
-    public function findByTenant(Tenant $tenant): array
+    public function findByTenant(Tenant $tenant, int $page = 1, int $pageSize = 20): array
     {
         return $this->createQueryBuilder('property')
             ->andWhere('property.tenant = :tenant')
+            ->andWhere('property.isArchived = false')
             ->setParameter('tenant', $tenant)
             ->orderBy('property.updatedAt', 'DESC')
+            ->setFirstResult(max(0, ($page - 1) * $pageSize))
+            ->setMaxResults($pageSize)
             ->getQuery()
             ->getResult();
     }
 
+    public function countByTenant(Tenant $tenant): int
+    {
+        return (int) $this->createQueryBuilder('property')
+            ->select('COUNT(property.id)')
+            ->andWhere('property.tenant = :tenant')
+            ->andWhere('property.isArchived = false')
+            ->setParameter('tenant', $tenant)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     public function findOneByTenantAndId(Tenant $tenant, int $id): ?Property
     {
-        return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
+        return $this->findOneBy(['tenant' => $tenant, 'id' => $id, 'isArchived' => false]);
     }
 
     public function findOneByTenantAndAddress(
@@ -44,6 +58,7 @@ class PropertyRepository extends ServiceEntityRepository
     ): ?Property {
         return $this->findOneBy([
             'tenant' => $tenant,
+            'isArchived' => false,
             'addressLine1' => trim($addressLine1),
             'addressLine2' => null !== $addressLine2 ? trim($addressLine2) : null,
             'city' => trim($city),

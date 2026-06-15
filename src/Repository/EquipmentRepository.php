@@ -20,7 +20,34 @@ class EquipmentRepository extends ServiceEntityRepository
     /** @return list<Equipment> */
     public function findByProperty(Property $property): array
     {
-        return $this->findBy(['property' => $property], ['createdAt' => 'DESC']);
+        return $this->findBy(['property' => $property, 'isArchived' => false], ['createdAt' => 'DESC']);
+    }
+
+    public function findOneByTenantPropertyAndId(int $id, Property $property): ?Equipment
+    {
+        return $this->findOneBy(['id' => $id, 'property' => $property, 'isArchived' => false]);
+    }
+
+    /** @return list<Equipment> */
+    public function findByPropertyPaginated(Property $property, int $page, int $pageSize): array
+    {
+        return $this->findBy(
+            ['property' => $property, 'isArchived' => false],
+            ['createdAt' => 'DESC'],
+            $pageSize,
+            max(0, ($page - 1) * $pageSize),
+        );
+    }
+
+    public function countByProperty(Property $property): int
+    {
+        return (int) $this->createQueryBuilder('equipment')
+            ->select('COUNT(equipment.id)')
+            ->andWhere('equipment.property = :property')
+            ->andWhere('equipment.isArchived = false')
+            ->setParameter('property', $property)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     /**
@@ -37,6 +64,7 @@ class EquipmentRepository extends ServiceEntityRepository
         $rows = $this->createQueryBuilder('equipment')
             ->select('IDENTITY(equipment.property) AS propertyId, COUNT(equipment.id) AS equipmentCount')
             ->andWhere('equipment.property IN (:properties)')
+            ->andWhere('equipment.isArchived = false')
             ->setParameter('properties', $properties)
             ->groupBy('equipment.property')
             ->getQuery()

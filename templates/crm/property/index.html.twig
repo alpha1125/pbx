@@ -8,7 +8,10 @@
             <h1 class="h2 mb-1">Properties</h1>
             <p class="text-body-secondary mb-0">{{ tenant.name }}</p>
         </div>
-        <a class="btn btn-outline-secondary" href="{{ path('crm_rfq_invitation_index') }}">View RFQ Invitations</a>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="{{ path('crm_property_new') }}">Add Property</a>
+            <a class="btn btn-outline-secondary" href="{{ path('crm_rfq_invitation_index') }}">View RFQ Invitations</a>
+        </div>
     </div>
 
     <div class="card shadow-sm">
@@ -53,4 +56,23 @@
             </table>
         </div>
     </div>
+
+    {% if totalProperties > pageSize %}
+        {% set totalPages = (totalProperties / pageSize)|round(0, 'ceil') %}
+        <nav class="mt-4" aria-label="Property pagination">
+            <ul class="pagination mb-0">
+                <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
+                    <a class="page-link" href="{{ path('crm_property_index', {page: page - 1}) }}">Previous</a>
+                </li>
+                {% for currentPage in 1..totalPages %}
+                    <li class="page-item {{ currentPage == page ? 'active' : '' }}">
+                        <a class="page-link" href="{{ path('crm_property_index', {page: currentPage}) }}">{{ currentPage }}</a>
+                    </li>
+                {% endfor %}
+                <li class="page-item {{ page >= totalPages ? 'disabled' : '' }}">
+                    <a class="page-link" href="{{ path('crm_property_index', {page: page + 1}) }}">Next</a>
+                </li>
+            </ul>
+        </nav>
+    {% endif %}
 {% endblock %}

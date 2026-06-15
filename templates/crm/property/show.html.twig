@@ -9,13 +9,23 @@
             <h1 class="h2 mt-2 mb-1">{{ property.displayAddress }}</h1>
             <p class="text-body-secondary mb-0">{{ property.propertyType ?: 'Property' }}</p>
         </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary" href="{{ path('crm_property_edit', {id: property.id}) }}">Edit Property</a>
+            <form method="post" action="{{ path('crm_property_archive', {id: property.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('crm_property_archive_' ~ property.id) }}">
+                <button class="btn btn-outline-danger" type="submit" onclick="return confirm('Archive this property?')">Archive</button>
+            </form>
+        </div>
     </div>
 
     <div class="row g-4">
         <div class="col-lg-6">
             <div class="card shadow-sm h-100">
                 <div class="card-body">
-                    <h2 class="h5">Contacts</h2>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h2 class="h5 mb-0">Contacts</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_contact_new', {propertyId: property.id}) }}">Add Contact</a>
+                    </div>
                     <div class="list-group list-group-flush">
                         {% for propertyContact in propertyContacts %}
                             <div class="list-group-item px-0">
@@ -30,6 +40,13 @@
                                         {% if propertyContact.isPrimary %}
                                             <span class="badge text-bg-primary">Primary</span>
                                         {% endif %}
+                                        <div class="mt-2">
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_contact_edit', {propertyId: property.id, contactId: propertyContact.contact.id}) }}">Edit</a>
+                                        </div>
+                                        <form method="post" action="{{ path('crm_property_contact_archive', {propertyId: property.id, contactId: propertyContact.contact.id}) }}" class="mt-2">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('crm_property_contact_archive_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
+                                            <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Archive this property-contact link?')">Archive Link</button>
+                                        </form>
                                         {% if propertyContact.contact.primaryPhone %}
                                             <form method="post" action="{{ path('crm_property_contact_click_to_call', {propertyId: property.id, contactId: propertyContact.contact.id}) }}" class="mt-2">
                                                 <input type="hidden" name="_token" value="{{ csrf_token('crm_click_to_call_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
@@ -43,6 +60,24 @@
                             <div class="text-body-secondary">No contacts linked.</div>
                         {% endfor %}
                     </div>
+                    {% if totalPropertyContacts > contactPageSize %}
+                        {% set totalContactPages = (totalPropertyContacts / contactPageSize)|round(0, 'ceil') %}
+                        <nav class="mt-3" aria-label="Property contact pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item {{ contactPage <= 1 ? 'disabled' : '' }}">
+                                    <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: contactPage - 1, equipmentPage: equipmentPage}) }}">Previous</a>
+                                </li>
+                                {% for currentPage in 1..totalContactPages %}
+                                    <li class="page-item {{ currentPage == contactPage ? 'active' : '' }}">
+                                        <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: currentPage, equipmentPage: equipmentPage}) }}">{{ currentPage }}</a>
+                                    </li>
+                                {% endfor %}
+                                <li class="page-item {{ contactPage >= totalContactPages ? 'disabled' : '' }}">
+                                    <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: contactPage + 1, equipmentPage: equipmentPage}) }}">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -50,18 +85,44 @@
         <div class="col-lg-6">
             <div class="card shadow-sm h-100">
                 <div class="card-body">
-                    <h2 class="h5">Equipment</h2>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h2 class="h5 mb-0">Equipment</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_equipment_new', {propertyId: property.id}) }}">Add Equipment</a>
+                    </div>
                     <div class="list-group list-group-flush">
                         {% for unit in equipment %}
                             <div class="list-group-item px-0">
-                                <div class="fw-semibold">{{ unit.equipmentType|replace({'_':' '})|title }}</div>
-                                <div class="small text-body-secondary">{{ unit.brand ?: 'Unknown brand' }} {{ unit.modelNumber ?: '' }}</div>
-                                <div class="small">Status: {{ unit.status|replace({'_':' '})|title }}</div>
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ unit.equipmentType|replace({'_':' '})|title }}</div>
+                                        <div class="small text-body-secondary">{{ unit.brand ?: 'Unknown brand' }} {{ unit.modelNumber ?: '' }}</div>
+                                        <div class="small">Status: {{ unit.status|replace({'_':' '})|title }}</div>
+                                    </div>
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_equipment_edit', {propertyId: property.id, equipmentId: unit.id}) }}">Edit</a>
+                                </div>
                             </div>
                         {% else %}
                             <div class="text-body-secondary">No equipment recorded.</div>
                         {% endfor %}
                     </div>
+                    {% if totalEquipment > equipmentPageSize %}
+                        {% set totalEquipmentPages = (totalEquipment / equipmentPageSize)|round(0, 'ceil') %}
+                        <nav class="mt-3" aria-label="Property equipment pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item {{ equipmentPage <= 1 ? 'disabled' : '' }}">
+                                    <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: contactPage, equipmentPage: equipmentPage - 1}) }}">Previous</a>
+                                </li>
+                                {% for currentPage in 1..totalEquipmentPages %}
+                                    <li class="page-item {{ currentPage == equipmentPage ? 'active' : '' }}">
+                                        <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: contactPage, equipmentPage: currentPage}) }}">{{ currentPage }}</a>
+                                    </li>
+                                {% endfor %}
+                                <li class="page-item {{ equipmentPage >= totalEquipmentPages ? 'disabled' : '' }}">
+                                    <a class="page-link" href="{{ path('crm_property_show', {id: property.id, contactPage: contactPage, equipmentPage: equipmentPage + 1}) }}">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    {% endif %}
                 </div>
             </div>
         </div>

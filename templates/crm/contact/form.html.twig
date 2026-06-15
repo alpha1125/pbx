@@ -1,0 +1,84 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    {% set relationshipType = propertyContact.relationshipType ?? 'other' %}
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_property_show', {id: property.id}) }}">Back to Property</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-1">{{ title }}</h1>
+                    <p class="text-body-secondary mb-4">{{ property.displayAddress }}</p>
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_contact_form') }}">
+                        <div class="col-md-4">
+                            <label class="form-label" for="firstName">First Name</label>
+                            <input class="form-control" id="firstName" name="firstName" value="{{ contact.firstName }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="lastName">Last Name</label>
+                            <input class="form-control" id="lastName" name="lastName" value="{{ contact.lastName }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="displayName">Display Name</label>
+                            <input class="form-control" id="displayName" name="displayName" value="{{ contact.displayName }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="companyName">Company Name</label>
+                            <input class="form-control" id="companyName" name="companyName" value="{{ contact.companyName }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="relationshipType">Relationship</label>
+                            <select class="form-select" id="relationshipType" name="relationshipType">
+                                {% for value, label in {
+                                    owner: 'Owner',
+                                    tenant: 'Tenant',
+                                    property_manager: 'Property Manager',
+                                    billing_contact: 'Billing Contact',
+                                    realtor: 'Realtor',
+                                    emergency_contact: 'Emergency Contact',
+                                    other: 'Other'
+                                } %}
+                                    <option value="{{ value }}" {% if relationshipType == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="primaryPhone">Primary Phone</label>
+                            <input class="form-control" id="primaryPhone" name="primaryPhone" value="{{ contact.primaryPhone }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="primaryEmail">Primary Email</label>
+                            <input class="form-control" id="primaryEmail" name="primaryEmail" value="{{ contact.primaryEmail }}">
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="isPrimary" name="isPrimary" value="1" {% if propertyContact is defined and propertyContact.isPrimary %}checked{% endif %}>
+                                <label class="form-check-label" for="isPrimary">Primary contact for this property</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="4">{{ contact.notes }}</textarea>
+                        </div>
+                        {% include 'crm/_form_actions.html.twig' with {
+                            cancelPath: path('crm_property_show', {id: property.id}),
+                            submitLabel: 'Save Contact'
+                        } only %}
+                    </form>
+                    {% if contact.id %}
+                        <hr class="my-4">
+                        <form method="post" action="{{ path('crm_contact_archive', {propertyId: property.id, contactId: contact.id}) }}">
+                            <input type="hidden" name="_token" value="{{ csrf_token('crm_contact_archive_' ~ contact.id) }}">
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-danger" type="submit" onclick="return confirm('Archive this contact?')">Archive Contact</button>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
