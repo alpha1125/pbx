@@ -127,79 +127,60 @@
             </div>
         </div>
 
-        <div class="col-lg-4">
+        <div class="col-12">
             <div class="card shadow-sm h-100">
                 <div class="card-body">
-                    <h2 class="h5">Estimates</h2>
-                    <div class="list-group list-group-flush">
-                        {% for estimate in estimates %}
-                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_estimate_show', {id: estimate.id}) }}">
-                                <div class="fw-semibold">{{ estimate.title ?: 'Estimate #' ~ estimate.id }}</div>
-                                <div class="small text-body-secondary">{{ estimate.status|replace({'_':' '})|title }}</div>
-                            </a>
-                        {% else %}
-                            <div class="text-body-secondary">No estimates yet.</div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <h2 class="h5">Quotes</h2>
-                    <div class="list-group list-group-flush">
-                        {% for quote in quotes %}
-                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_quote_show', {id: quote.id}) }}">
-                                <div class="fw-semibold">{{ quote.quoteNumber }}</div>
-                                <div class="small text-body-secondary">{{ quote.status|replace({'_':' '})|title }}</div>
-                            </a>
-                        {% else %}
-                            <div class="text-body-secondary">No quotes yet.</div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <h2 class="h5">Invoices</h2>
-                    <div class="list-group list-group-flush">
-                        {% for invoice in invoices %}
-                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_invoice_show', {id: invoice.id}) }}">
-                                <div class="fw-semibold">{{ invoice.invoiceNumber }}</div>
-                                <div class="small text-body-secondary">{{ invoice.status|replace({'_':' '})|title }}</div>
-                            </a>
-                        {% else %}
-                            <div class="text-body-secondary">No invoices yet.</div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-6">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <h2 class="h5">Calls and Transcripts</h2>
-                    <div class="list-group list-group-flush">
-                        {% for call in calls %}
-                            <div class="list-group-item px-0">
-                                <div class="fw-semibold">Call Session #{{ call.id }}</div>
-                                <div class="small text-body-secondary">{{ call.flowType ?: 'call' }} • {{ call.status }}</div>
+                    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+                        <div>
+                            <h2 class="h5 mb-1">Communication Timeline</h2>
+                            <p class="text-body-secondary mb-0">Calls, recordings, transcripts, summaries, and notes for this property.</p>
+                        </div>
+                        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+                            <div>
+                                <label class="form-label small mb-1" for="timeline-search">Search</label>
+                                <input class="form-control form-control-sm" id="timeline-search" name="q" value="{{ timelineSearch }}">
                             </div>
-                        {% else %}
-                            <div class="text-body-secondary">No linked calls yet.</div>
-                        {% endfor %}
+                            <div>
+                                <label class="form-label small mb-1" for="timeline-filter">Filter</label>
+                                <select class="form-select form-select-sm" id="timeline-filter" name="activity">
+                                    <option value="all" {% if timelineFilter == 'all' %}selected{% endif %}>All activity</option>
+                                    <option value="calls" {% if timelineFilter == 'calls' %}selected{% endif %}>Calls only</option>
+                                    <option value="transcripts" {% if timelineFilter == 'transcripts' %}selected{% endif %}>Transcripts only</option>
+                                    <option value="notes" {% if timelineFilter == 'notes' %}selected{% endif %}>Notes only</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" type="submit">Apply</button>
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_property_show', {id: property.id}) }}">Reset</a>
+                        </form>
+                    </div>
 
-                        {% for transcript in transcripts %}
-                            <a class="list-group-item list-group-item-action px-0" href="{{ path('transcript_messages', {id: transcript.id}) }}">
-                                <div class="fw-semibold">Transcript #{{ transcript.id }}</div>
-                                <div class="small text-body-secondary">{{ transcript.status }} • {{ transcript.createdAt|date('Y-m-d H:i') }}</div>
-                            </a>
+                    <form method="post" action="{{ path('crm_property_timeline_note', {id: property.id}) }}" class="row g-3 mb-4 border rounded-3 p-3 bg-body-tertiary">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_property_timeline_note_' ~ property.id) }}">
+                        <div class="col-12">
+                            <label class="form-label" for="noteText">Add Note</label>
+                            <textarea class="form-control" id="noteText" name="noteText" rows="3" placeholder="Add a call note, follow-up detail, or context for this property."></textarea>
+                        </div>
+                        <div class="col-md-6 col-lg-4">
+                            <label class="form-label" for="noteDisposition">Disposition</label>
+                            <select class="form-select" id="noteDisposition" name="disposition">
+                                <option value="">None</option>
+                                <option value="no_answer">No answer</option>
+                                <option value="quote_requested">Quote requested</option>
+                                <option value="follow_up_required">Follow-up required</option>
+                                <option value="job_booked">Job booked</option>
+                                <option value="spam">Spam</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Save Note</button>
+                        </div>
+                    </form>
+
+                    <div class="list-group list-group-flush">
+                        {% for item in timelineItems %}
+                            {% include 'crm/communication/_timeline_item.html.twig' with {item: item, property: property, transcriptMessages: transcriptMessages} %}
+                        {% else %}
+                            <div class="text-body-secondary">No timeline items yet.</div>
                         {% endfor %}
                     </div>
                 </div>

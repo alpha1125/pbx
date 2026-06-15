@@ -10,6 +10,7 @@ use App\Entity\CallSession;
 use App\Repository\CallLegRepository;
 use App\Repository\CallRecordingRepository;
 use App\Repository\CallSessionRepository;
+use App\Service\CommunicationTimelineProjector;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
@@ -22,6 +23,7 @@ class TelnyxRecordingProjectionService
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
         private readonly RecordingImportService $recordingImport,
+        private readonly CommunicationTimelineProjector $timelineProjector,
     ) {
     }
 
@@ -87,6 +89,9 @@ class TelnyxRecordingProjectionService
         $this->entityManager->flush();
         if ('import_pending' === $recording->getStatus()) {
             $this->recordingImport->import($recording);
+        }
+        if (null !== $session->getProperty()) {
+            $this->timelineProjector->syncProperty($session->getProperty());
         }
     }
 

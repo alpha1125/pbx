@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ quote.quoteNumber }} | Quote</title>
+    <style>
+        :root { color-scheme: light; }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f1ea; color: #1f2937; }
+        .page { max-width: 960px; margin: 0 auto; padding: 32px 20px 48px; }
+        .hero { background: linear-gradient(135deg, #16324f, #4f6d7a); color: white; padding: 28px; border-radius: 20px; }
+        .hero h1 { margin: 0 0 8px; font-size: 2rem; }
+        .hero p { margin: 0; opacity: 0.9; }
+        .card { background: white; border-radius: 16px; padding: 24px; margin-top: 20px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .muted { color: #6b7280; }
+        .table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        .table th, .table td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+        .table th:last-child, .table td:last-child { text-align: right; }
+        .section-label { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; color: #6b7280; margin-top: 16px; }
+        .totals { display: grid; gap: 8px; max-width: 360px; margin-left: auto; margin-top: 20px; }
+        .totals div { display: flex; justify-content: space-between; }
+        .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+        .btn { display: inline-block; border-radius: 999px; padding: 12px 18px; text-decoration: none; border: 1px solid transparent; cursor: pointer; font-weight: 600; }
+        .btn-primary { background: #16324f; color: white; }
+        .btn-outline { border-color: #cbd5e1; color: #16324f; background: white; }
+        textarea, input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 12px; font: inherit; }
+        .form-grid { display: grid; gap: 14px; margin-top: 18px; }
+        .acceptance { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 18px; }
+        @media print {
+            body { background: white; }
+            .page { padding: 0; max-width: none; }
+            .hero, .actions, .acceptance, .no-print { display: none !important; }
+            .card { box-shadow: none; border-radius: 0; margin-top: 0; }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <section class="hero">
+        <h1>{{ quote.quoteNumber }}</h1>
+        <p>{{ quote.property.displayAddress }}</p>
+        <p class="muted" style="color: rgba(255,255,255,.85);">Prepared for {{ quote.contact ? quote.contact.displayName : 'customer' }} | {{ quote.status|replace({'_':' '})|title }}</p>
+    </section>
+
+    <section class="card">
+        <div class="grid">
+            <div>
+                <div class="section-label">From</div>
+                <div class="fw-semibold">{{ quote.tenant.name }}</div>
+                <div class="muted">{{ quote.tenant.email ?: 'No company email' }}</div>
+                <div class="muted">{{ quote.tenant.phone ?: '' }}</div>
+            </div>
+            <div>
+                <div class="section-label">To</div>
+                <div class="fw-semibold">{{ quote.contact ? quote.contact.displayName : 'Customer' }}</div>
+                <div class="muted">{% if quote.contact and quote.contact.primaryEmail %}{{ quote.contact.primaryEmail }}{% else %}No customer email{% endif %}</div>
+                <div class="muted">{% if quote.contact and quote.contact.primaryPhone %}{{ quote.contact.primaryPhone }}{% endif %}</div>
+            </div>
+        </div>
+
+        <table class="table">
+            <thead>
+            <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Total</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for lineItem in lineItems %}
+                {% if lineItem.sectionLabel %}
+                    <tr>
+                        <td colspan="4" class="section-label">{{ lineItem.sectionLabel }}</td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <td>{{ lineItem.description|nl2br }}</td>
+                    <td>{{ lineItem.quantity }}</td>
+                    <td>${{ (lineItem.unitPriceCents / 100)|number_format(2) }}</td>
+                    <td>${{ (lineItem.totalCents / 100)|number_format(2) }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">No line items.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="totals">
+            <div><span>Subtotal</span><span>${{ (quote.subtotalCents / 100)|number_format(2) }}</span></div>
+            <div><span>Discount</span><span>-${{ (quote.discountCents / 100)|number_format(2) }}</span></div>
+            <div><span>Tax</span><span>${{ (quote.taxCents / 100)|number_format(2) }}</span></div>
+            <div><strong>Total</strong><strong>${{ (quote.totalCents / 100)|number_format(2) }}</strong></div>
+            <div><span>Deposit</span><span>${{ (quote.depositCents / 100)|number_format(2) }}</span></div>
+        </div>
+
+        {% if quote.financingNotes %}
+            <div class="section-label">Financing</div>
+            <p>{{ quote.financingNotes|nl2br }}</p>
+        {% endif %}
+
+        {% if printable %}
+            <p class="muted">Printed {{ 'now'|date('Y-m-d H:i') }}</p>
+        {% endif %}
+    </section>
+
+    {% if not printable %}
+        <section class="card no-print">
+            <div class="actions">
+                <a class="btn btn-outline" href="{{ path('quote_public_print', {token: quote.shareToken}) }}" target="_blank" rel="noopener">Print view</a>
+                <a class="btn btn-outline" href="{{ path('quote_public_pdf', {token: quote.shareToken}) }}" target="_blank" rel="noopener">PDF</a>
+            </div>
+        </section>
+    {% endif %}
+
+    {% if quote.status not in ['accepted', 'declined', 'expired', 'cancelled', 'superseded'] %}
+        <section class="card acceptance no-print">
+            <h2 class="h4" style="margin-top:0;">Accept or Decline</h2>
+            <div class="grid">
+                <form method="post" action="{{ path('quote_public_accept', {token: quote.shareToken}) }}" class="form-grid">
+                    <input type="hidden" name="_token" value="{{ csrf_token('quote_public_accept_' ~ quote.id) }}">
+                    <div>
+                        <label for="acceptedByName">Name</label>
+                        <input id="acceptedByName" name="acceptedByName" value="{% if quote.acceptedByName %}{{ quote.acceptedByName }}{% elseif quote.contact %}{{ quote.contact.displayName }}{% endif %}">
+                    </div>
+                    <div>
+                        <label for="acceptedByEmail">Email</label>
+                        <input id="acceptedByEmail" name="acceptedByEmail" value="{% if quote.acceptedByEmail %}{{ quote.acceptedByEmail }}{% elseif quote.contact and quote.contact.primaryEmail %}{{ quote.contact.primaryEmail }}{% endif %}">
+                    </div>
+                    <div>
+                        <label for="acceptedMessage">Message</label>
+                        <textarea id="acceptedMessage" name="acceptedMessage" rows="4"></textarea>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Accept Quote</button>
+                </form>
+
+                <form method="post" action="{{ path('quote_public_decline', {token: quote.shareToken}) }}" class="form-grid">
+                    <input type="hidden" name="_token" value="{{ csrf_token('quote_public_decline_' ~ quote.id) }}">
+                    <div>
+                        <label for="declineReason">Decline Reason</label>
+                        <textarea id="declineReason" name="declineReason" rows="4"></textarea>
+                    </div>
+                    <button class="btn btn-outline" type="submit">Decline Quote</button>
+                </form>
+            </div>
+        </section>
+    {% endif %}
+</main>
+</body>
+</html>

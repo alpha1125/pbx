@@ -8,6 +8,7 @@ use App\Entity\Invoice;
 use App\Entity\InvoiceLineItem;
 use App\Entity\Quote;
 use App\Repository\QuoteLineItemRepository;
+use App\Service\CommunicationTimelineProjector;
 use Doctrine\ORM\EntityManagerInterface;
 
 class QuoteToInvoiceService
@@ -17,6 +18,7 @@ class QuoteToInvoiceService
         private readonly QuoteLineItemRepository $quoteLineItemRepository,
         private readonly DocumentNumberGenerator $documentNumberGenerator,
         private readonly AuditLogger $auditLogger,
+        private readonly CommunicationTimelineProjector $timelineProjector,
     ) {
     }
 
@@ -43,6 +45,7 @@ class QuoteToInvoiceService
 
             foreach ($this->quoteLineItemRepository->findByQuote($quote) as $lineItem) {
                 $invoiceLineItem = (new InvoiceLineItem($quote->getTenant(), $invoice, $lineItem->getDescription()))
+                    ->setSectionLabel($lineItem->getSectionLabel())
                     ->setQuantity($lineItem->getQuantity())
                     ->setUnitPriceCents($lineItem->getUnitPriceCents())
                     ->setTotalCents($lineItem->getTotalCents())
@@ -61,6 +64,12 @@ class QuoteToInvoiceService
             );
 
             $this->entityManager->flush();
+            $this->timelineProjector->recordInvoiceEvent(
+                $invoice,
+                'invoice.created_from_quote',
+                'Invoice created from quote.',
+                ['quoteId' => $quote->getId(), 'propertyId' => $quote->getProperty()->getId()],
+            );
 
             return $invoice;
         });

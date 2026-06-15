@@ -14,15 +14,19 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_quote_tenant', columns: ['tenant_id'])]
 #[ORM\Index(name: 'idx_quote_property', columns: ['property_id'])]
 #[ORM\Index(name: 'idx_quote_status', columns: ['status'])]
+#[ORM\Index(name: 'idx_quote_parent_quote', columns: ['parent_quote_id'])]
+#[ORM\Index(name: 'idx_quote_root_quote', columns: ['root_quote_id'])]
 class Quote
 {
     public const STATUS_DRAFT = 'draft';
+    public const STATUS_IN_REVIEW = 'in_review';
     public const STATUS_SENT = 'sent';
     public const STATUS_VIEWED = 'viewed';
     public const STATUS_ACCEPTED = 'accepted';
     public const STATUS_DECLINED = 'declined';
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_CANCELLED = 'cancelled';
+    public const STATUS_SUPERSEDED = 'superseded';
 
     use TimestampableTrait;
 
@@ -50,6 +54,20 @@ class Quote
     #[ORM\Column(length: 64)]
     private string $quoteNumber;
 
+    #[ORM\Column(type: Types::INTEGER, options: ['default' => 1])]
+    private int $revisionNumber = 1;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Quote $parentQuote = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Quote $rootQuote = null;
+
+    #[ORM\Column(length: 64, nullable: true, unique: true)]
+    private ?string $shareToken = null;
+
     #[ORM\Column(length: 50)]
     private string $status = self::STATUS_DRAFT;
 
@@ -60,7 +78,16 @@ class Quote
     private ?\DateTimeImmutable $sentAt = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $viewedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $acceptedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $declinedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $internalReviewAt = null;
 
     #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
     private int $subtotalCents = 0;
@@ -70,6 +97,24 @@ class Quote
 
     #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
     private int $totalCents = 0;
+
+    #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
+    private int $discountCents = 0;
+
+    #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
+    private int $depositCents = 0;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $financingNotes = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $acceptedByName = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $acceptedByEmail = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $acceptedMessage = null;
 
     public function __construct(Tenant $tenant, Property $property, string $quoteNumber)
     {
@@ -87,18 +132,44 @@ class Quote
     public function getEstimate(): ?Estimate { return $this->estimate; }
     public function setEstimate(?Estimate $estimate): static { $this->estimate = $estimate; return $this; }
     public function getQuoteNumber(): string { return $this->quoteNumber; }
+    public function getRevisionNumber(): int { return $this->revisionNumber; }
+    public function setRevisionNumber(int $revisionNumber): static { $this->revisionNumber = max(1, $revisionNumber); return $this; }
+    public function getParentQuote(): ?Quote { return $this->parentQuote; }
+    public function setParentQuote(?Quote $parentQuote): static { $this->parentQuote = $parentQuote; return $this; }
+    public function getRootQuote(): ?Quote { return $this->rootQuote; }
+    public function setRootQuote(?Quote $rootQuote): static { $this->rootQuote = $rootQuote; return $this; }
+    public function getShareToken(): ?string { return $this->shareToken; }
+    public function setShareToken(?string $shareToken): static { $this->shareToken = null !== $shareToken ? trim($shareToken) : null; return $this; }
     public function getStatus(): string { return $this->status; }
     public function setStatus(string $status): static { $this->status = trim($status); return $this; }
     public function getValidUntil(): ?\DateTimeImmutable { return $this->validUntil; }
     public function setValidUntil(?\DateTimeImmutable $validUntil): static { $this->validUntil = $validUntil; return $this; }
     public function getSentAt(): ?\DateTimeImmutable { return $this->sentAt; }
     public function setSentAt(?\DateTimeImmutable $sentAt): static { $this->sentAt = $sentAt; return $this; }
+    public function getViewedAt(): ?\DateTimeImmutable { return $this->viewedAt; }
+    public function setViewedAt(?\DateTimeImmutable $viewedAt): static { $this->viewedAt = $viewedAt; return $this; }
     public function getAcceptedAt(): ?\DateTimeImmutable { return $this->acceptedAt; }
     public function setAcceptedAt(?\DateTimeImmutable $acceptedAt): static { $this->acceptedAt = $acceptedAt; return $this; }
+    public function getDeclinedAt(): ?\DateTimeImmutable { return $this->declinedAt; }
+    public function setDeclinedAt(?\DateTimeImmutable $declinedAt): static { $this->declinedAt = $declinedAt; return $this; }
+    public function getInternalReviewAt(): ?\DateTimeImmutable { return $this->internalReviewAt; }
+    public function setInternalReviewAt(?\DateTimeImmutable $internalReviewAt): static { $this->internalReviewAt = $internalReviewAt; return $this; }
     public function getSubtotalCents(): int { return $this->subtotalCents; }
     public function setSubtotalCents(int $subtotalCents): static { $this->subtotalCents = $subtotalCents; return $this; }
     public function getTaxCents(): int { return $this->taxCents; }
     public function setTaxCents(int $taxCents): static { $this->taxCents = $taxCents; return $this; }
     public function getTotalCents(): int { return $this->totalCents; }
     public function setTotalCents(int $totalCents): static { $this->totalCents = $totalCents; return $this; }
+    public function getDiscountCents(): int { return $this->discountCents; }
+    public function setDiscountCents(int $discountCents): static { $this->discountCents = max(0, $discountCents); return $this; }
+    public function getDepositCents(): int { return $this->depositCents; }
+    public function setDepositCents(int $depositCents): static { $this->depositCents = max(0, $depositCents); return $this; }
+    public function getFinancingNotes(): ?string { return $this->financingNotes; }
+    public function setFinancingNotes(?string $financingNotes): static { $this->financingNotes = null !== $financingNotes ? trim($financingNotes) : null; return $this; }
+    public function getAcceptedByName(): ?string { return $this->acceptedByName; }
+    public function setAcceptedByName(?string $acceptedByName): static { $this->acceptedByName = null !== $acceptedByName ? trim($acceptedByName) : null; return $this; }
+    public function getAcceptedByEmail(): ?string { return $this->acceptedByEmail; }
+    public function setAcceptedByEmail(?string $acceptedByEmail): static { $this->acceptedByEmail = null !== $acceptedByEmail ? trim($acceptedByEmail) : null; return $this; }
+    public function getAcceptedMessage(): ?string { return $this->acceptedMessage; }
+    public function setAcceptedMessage(?string $acceptedMessage): static { $this->acceptedMessage = $acceptedMessage; return $this; }
 }

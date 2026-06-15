@@ -43,6 +43,9 @@ class Tenant
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $website = null;
 
+    #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
+    private int $quoteTaxRateBps = 0;
+
     public function __construct(string $name)
     {
         $this->name = trim($name);
@@ -110,6 +113,18 @@ class Tenant
     public function setWebsite(?string $website): static
     {
         $this->website = null !== $website ? trim($website) : null;
+
+        return $this;
+    }
+
+    public function getQuoteTaxRateBps(): int
+    {
+        return $this->quoteTaxRateBps;
+    }
+
+    public function setQuoteTaxRateBps(int $quoteTaxRateBps): static
+    {
+        $this->quoteTaxRateBps = max(0, $quoteTaxRateBps);
 
         return $this;
     }

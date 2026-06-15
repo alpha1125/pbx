@@ -32,6 +32,9 @@ class QuoteLineItem
     #[ORM\Column(type: Types::TEXT)]
     private string $description;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $sectionLabel = null;
+
     #[ORM\Column(type: Types::DECIMAL, precision: 10, scale: 2)]
     private string $quantity = '1.00';
 
@@ -57,6 +60,8 @@ class QuoteLineItem
     public function getQuote(): Quote { return $this->quote; }
     public function getDescription(): string { return $this->description; }
     public function setDescription(string $description): static { $this->description = trim($description); return $this; }
+    public function getSectionLabel(): ?string { return $this->sectionLabel; }
+    public function setSectionLabel(?string $sectionLabel): static { $this->sectionLabel = null !== $sectionLabel ? trim($sectionLabel) : null; return $this; }
     public function getQuantity(): string { return $this->quantity; }
     public function setQuantity(string $quantity): static { $this->quantity = $quantity; return $this; }
     public function getUnitPriceCents(): int { return $this->unitPriceCents; }

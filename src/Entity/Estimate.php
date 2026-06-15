@@ -53,6 +53,12 @@ class Estimate
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $notes = null;
 
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $exclusions = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $assumptions = null;
+
     #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
     private int $subtotalCents = 0;
 
@@ -82,6 +88,10 @@ class Estimate
     public function setTitle(?string $title): static { $this->title = null !== $title ? trim($title) : null; return $this; }
     public function getNotes(): ?string { return $this->notes; }
     public function setNotes(?string $notes): static { $this->notes = $notes; return $this; }
+    public function getExclusions(): ?string { return $this->exclusions; }
+    public function setExclusions(?string $exclusions): static { $this->exclusions = $exclusions; return $this; }
+    public function getAssumptions(): ?string { return $this->assumptions; }
+    public function setAssumptions(?string $assumptions): static { $this->assumptions = $assumptions; return $this; }
     public function getSubtotalCents(): int { return $this->subtotalCents; }
     public function setSubtotalCents(int $subtotalCents): static { $this->subtotalCents = $subtotalCents; return $this; }
     public function getTaxCents(): int { return $this->taxCents; }

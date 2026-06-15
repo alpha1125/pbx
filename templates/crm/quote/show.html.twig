@@ -7,12 +7,31 @@
         <div>
             <a class="link-secondary text-decoration-none" href="{{ path('crm_property_show', {id: quote.property.id}) }}">Back to Property</a>
             <h1 class="h2 mt-2 mb-1">{{ quote.quoteNumber }}</h1>
-            <p class="text-body-secondary mb-0">{{ quote.status|replace({'_':' '})|title }}</p>
+            <p class="text-body-secondary mb-0">
+                {{ quote.status|replace({'_':' '})|title }}
+                {% if quote.revisionNumber > 1 %}
+                    · Revision {{ quote.revisionNumber }}
+                {% endif %}
+            </p>
         </div>
-        <form method="post" action="{{ path('crm_quote_convert_to_invoice', {id: quote.id}) }}">
-            <input type="hidden" name="_token" value="{{ csrf_token('quote_convert_' ~ quote.id) }}">
-            <button class="btn btn-primary" type="submit" {% if quote.status != 'accepted' %}disabled{% endif %}>Convert to Invoice</button>
-        </form>
+        <div class="d-grid gap-2">
+            <form method="post" action="{{ path('crm_quote_request_review', {id: quote.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('quote_review_' ~ quote.id) }}">
+                <button class="btn btn-outline-primary w-100" type="submit">Send to Review</button>
+            </form>
+            <form method="post" action="{{ path('crm_quote_send', {id: quote.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('quote_send_' ~ quote.id) }}">
+                <button class="btn btn-primary w-100" type="submit">Send Quote</button>
+            </form>
+            <form method="post" action="{{ path('crm_quote_revise', {id: quote.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('quote_revise_' ~ quote.id) }}">
+                <button class="btn btn-outline-secondary w-100" type="submit">Revise Quote</button>
+            </form>
+            <form method="post" action="{{ path('crm_quote_convert_to_invoice', {id: quote.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('quote_convert_' ~ quote.id) }}">
+                <button class="btn btn-success w-100" type="submit" {% if quote.status != 'accepted' %}disabled{% endif %}>Convert to Invoice</button>
+            </form>
+        </div>
     </div>
 
     <div class="row g-4">
@@ -23,6 +42,7 @@
                     <table class="table align-middle">
                         <thead>
                             <tr>
+                                <th>Section</th>
                                 <th>Description</th>
                                 <th>Qty</th>
                                 <th>Unit Price</th>
@@ -32,6 +52,7 @@
                         <tbody>
                             {% for lineItem in lineItems %}
                                 <tr>
+                                    <td>{{ lineItem.sectionLabel ?: 'General' }}</td>
                                     <td>{{ lineItem.description }}</td>
                                     <td>{{ lineItem.quantity }}</td>
                                     <td>${{ (lineItem.unitPriceCents / 100)|number_format(2) }}</td>
@@ -39,28 +60,47 @@
                                 </tr>
                             {% else %}
                                 <tr>
-                                    <td colspan="4" class="text-center text-body-secondary py-4">No line items.</td>
+                                    <td colspan="5" class="text-center text-body-secondary py-4">No line items.</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                         <tfoot>
                             <tr>
-                                <th colspan="3" class="text-end">Total</th>
+                                <th colspan="4" class="text-end">Total</th>
                                 <th>${{ (quote.totalCents / 100)|number_format(2) }}</th>
                             </tr>
                         </tfoot>
                     </table>
+                    {% if quote.financingNotes %}
+                        <h3 class="h6 mt-4">Financing</h3>
+                        <p class="mb-0">{{ quote.financingNotes|nl2br }}</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
         <div class="col-lg-4">
             <div class="card shadow-sm">
                 <div class="card-body">
-                    <h2 class="h5">Update Status</h2>
+                    <h2 class="h5">Quote Details</h2>
+                    <div class="mb-3">
+                        <div class="small text-body-secondary">Validity</div>
+                        <div>{{ quote.validUntil ? quote.validUntil|date('Y-m-d') : 'No expiry' }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="small text-body-secondary">Tax / Discount / Deposit</div>
+                        <div>${{ (quote.taxCents / 100)|number_format(2) }} / -${{ (quote.discountCents / 100)|number_format(2) }} / ${{ (quote.depositCents / 100)|number_format(2) }}</div>
+                    </div>
+                    {% if quote.shareToken %}
+                        <div class="mb-3">
+                            <div class="small text-body-secondary">Public Link</div>
+                            <a href="{{ path('quote_public_view', {token: quote.shareToken}) }}" target="_blank" rel="noopener">Open customer view</a>
+                        </div>
+                    {% endif %}
+                    <h2 class="h5 mt-4">Update Status</h2>
                     <form method="post" action="{{ path('crm_quote_update_status', {id: quote.id}) }}" class="d-grid gap-3">
                         <input type="hidden" name="_token" value="{{ csrf_token('quote_status_' ~ quote.id) }}">
                         <select class="form-select" name="status">
-                            {% for status in ['draft', 'sent', 'viewed', 'accepted', 'declined', 'expired', 'cancelled'] %}
+                            {% for status in ['draft', 'in_review', 'sent', 'viewed', 'accepted', 'declined', 'expired', 'cancelled', 'superseded'] %}
                                 <option value="{{ status }}" {% if quote.status == status %}selected{% endif %}>{{ status|replace({'_':' '})|title }}</option>
                             {% endfor %}
                         </select>

@@ -16,7 +16,9 @@ class EstimateToQuoteService
         private readonly EntityManagerInterface $entityManager,
         private readonly EstimateLineItemRepository $estimateLineItemRepository,
         private readonly DocumentNumberGenerator $documentNumberGenerator,
+        private readonly MoneyCalculator $moneyCalculator,
         private readonly AuditLogger $auditLogger,
+        private readonly CommunicationTimelineProjector $timelineProjector,
     ) {
     }
 
@@ -27,6 +29,7 @@ class EstimateToQuoteService
                 throw new \RuntimeException(sprintf('Estimate %d cannot be converted from status "%s".', $estimate->getId(), $estimate->getStatus()));
             }
 
+            $lineItems = $this->estimateLineItemRepository->findByEstimate($estimate);
             $quote = (new Quote(
                 $estimate->getTenant(),
                 $estimate->getProperty(),
@@ -34,19 +37,29 @@ class EstimateToQuoteService
             ))
                 ->setContact($estimate->getContact())
                 ->setEstimate($estimate)
-                ->setSubtotalCents($estimate->getSubtotalCents())
-                ->setTaxCents($estimate->getTaxCents())
-                ->setTotalCents($estimate->getTotalCents());
+                ->setRevisionNumber(1)
+                ->setSubtotalCents(0)
+                ->setTaxCents(0)
+                ->setTotalCents(0)
+                ->setDiscountCents(0)
+                ->setDepositCents(0);
             $this->entityManager->persist($quote);
 
-            foreach ($this->estimateLineItemRepository->findByEstimate($estimate) as $lineItem) {
+            foreach ($lineItems as $lineItem) {
                 $quoteLineItem = (new QuoteLineItem($estimate->getTenant(), $quote, $lineItem->getDescription()))
+                    ->setSectionLabel($lineItem->getSectionLabel())
                     ->setQuantity($lineItem->getQuantity())
                     ->setUnitPriceCents($lineItem->getUnitPriceCents())
                     ->setTotalCents($lineItem->getTotalCents())
                     ->setSortOrder($lineItem->getSortOrder());
                 $this->entityManager->persist($quoteLineItem);
             }
+
+            $computedTotals = $this->moneyCalculator->summarize($lineItems, $estimate->getTenant());
+            $quote
+                ->setSubtotalCents($computedTotals['subtotalCents'])
+                ->setTaxCents($computedTotals['taxCents'])
+                ->setTotalCents($computedTotals['totalCents']);
 
             $before = ['status' => $estimate->getStatus()];
             $estimate->setStatus(Estimate::STATUS_CONVERTED_TO_QUOTE)->touch();
@@ -72,6 +85,12 @@ class EstimateToQuoteService
             );
 
             $this->entityManager->flush();
+            $this->timelineProjector->recordQuoteEvent(
+                $quote,
+                'quote.created_from_estimate',
+                'Quote created from estimate.',
+                ['estimateId' => $estimate->getId(), 'propertyId' => $estimate->getProperty()->getId()],
+            );
 
             return $quote;
         });

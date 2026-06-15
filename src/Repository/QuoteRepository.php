@@ -28,4 +28,23 @@ class QuoteRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
     }
+
+    public function findOneByShareToken(string $token): ?Quote
+    {
+        return $this->findOneBy(['shareToken' => $token]);
+    }
+
+    public function findLatestRevisionForRoot(Quote $quote): ?Quote
+    {
+        $root = $quote->getRootQuote() ?? $quote;
+
+        return $this->createQueryBuilder('q')
+            ->andWhere('q.rootQuote = :root OR q.id = :rootId')
+            ->setParameter('root', $root)
+            ->setParameter('rootId', $root->getId())
+            ->orderBy('q.revisionNumber', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
 }

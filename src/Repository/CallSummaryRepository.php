@@ -31,4 +31,23 @@ final class CallSummaryRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['callTranscript' => $transcript], ['createdAt' => 'DESC']);
     }
+
+    /**
+     * @param list<\App\Entity\CallSession> $sessions
+     *
+     * @return list<CallSummary>
+     */
+    public function findBySessions(array $sessions): array
+    {
+        if ([] === $sessions) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('summary')
+            ->andWhere('summary.callSession IN (:sessions)')
+            ->setParameter('sessions', $sessions)
+            ->orderBy('summary.createdAt', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
 }

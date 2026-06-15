@@ -9,6 +9,7 @@ use App\Repository\InvoiceLineItemRepository;
 use App\Repository\InvoiceRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
+use App\Service\CommunicationTimelineProjector;
 use App\Service\CurrentTenantProviderInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -49,6 +50,7 @@ final class InvoiceController extends AbstractController
         InvoiceRepository $invoiceRepository,
         AuditLogger $auditLogger,
         EntityManagerInterface $entityManager,
+        CommunicationTimelineProjector $timelineProjector,
     ): RedirectResponse {
         $tenant = $tenantProvider->requireCurrentTenant();
         $invoice = $invoiceRepository->findOneByTenantAndId($tenant, $id);
@@ -86,6 +88,12 @@ final class InvoiceController extends AbstractController
             ['propertyId' => $invoice->getProperty()->getId()],
         );
         $entityManager->flush();
+        $timelineProjector->recordInvoiceEvent(
+            $invoice,
+            'invoice.status_changed',
+            sprintf('Invoice status changed to %s.', $invoice->getStatus()),
+            ['before' => $before, 'propertyId' => $invoice->getProperty()->getId()],
+        );
 
         return $this->redirectToRoute('crm_invoice_show', ['id' => $invoice->getId()]);
     }

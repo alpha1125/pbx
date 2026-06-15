@@ -8,9 +8,14 @@ use App\Entity\Tenant;
 
 class DocumentNumberGenerator
 {
-    public function generateQuoteNumber(Tenant $tenant): string
+    public function generateQuoteNumber(Tenant $tenant, int $revisionNumber = 1): string
     {
-        return sprintf('Q-%d-%s', $tenant->getId() ?? 0, strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
+        $base = sprintf('Q-%d-%s', $tenant->getId() ?? 0, strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
+        if ($revisionNumber > 1) {
+            $base .= sprintf('-R%d', $revisionNumber);
+        }
+
+        return $base;
     }
 
     public function generateInvoiceNumber(Tenant $tenant): string

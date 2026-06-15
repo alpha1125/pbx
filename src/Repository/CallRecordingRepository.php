@@ -38,6 +38,25 @@ class CallRecordingRepository extends ServiceEntityRepository
         return $this->findBy([], ['createdAt' => 'DESC'], $limit);
     }
 
+    /**
+     * @param list<CallSession> $sessions
+     *
+     * @return list<CallRecording>
+     */
+    public function findBySessions(array $sessions): array
+    {
+        if ([] === $sessions) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('recording')
+            ->andWhere('recording.callSession IN (:sessions)')
+            ->setParameter('sessions', $sessions)
+            ->orderBy('recording.createdAt', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
     /** @return list<CallRecording> */
     public function findPendingImports(int $limit = 50): array
     {

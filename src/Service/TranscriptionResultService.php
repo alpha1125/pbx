@@ -9,6 +9,7 @@ use App\Entity\CallTranscript;
 use App\Entity\TranscriptionJob;
 use App\Repository\CallSummaryRepository;
 use App\Repository\CallTranscriptRepository;
+use App\Service\CommunicationTimelineProjector;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class TranscriptionResultService
@@ -17,6 +18,7 @@ final class TranscriptionResultService
         private readonly EntityManagerInterface $entityManager,
         private readonly CallTranscriptRepository $transcripts,
         private readonly CallSummaryRepository $summaries,
+        private readonly CommunicationTimelineProjector $timelineProjector,
     ) {
     }
 
@@ -92,6 +94,9 @@ final class TranscriptionResultService
         }
 
         $this->entityManager->flush();
+        if (null !== $transcript->getCallSession()?->getProperty()) {
+            $this->timelineProjector->syncProperty($transcript->getCallSession()->getProperty());
+        }
 
         return [
             'transcriptId' => $transcript->getId(),
@@ -131,5 +136,8 @@ final class TranscriptionResultService
         }
 
         $this->entityManager->flush();
+        if (null !== $transcript?->getCallSession()?->getProperty()) {
+            $this->timelineProjector->syncProperty($transcript->getCallSession()->getProperty());
+        }
     }
 }

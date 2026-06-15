@@ -9,6 +9,7 @@ use App\Entity\CallSession;
 use App\Entity\TelnyxEvent;
 use App\Repository\CallLegRepository;
 use App\Repository\CallSessionRepository;
+use App\Service\CommunicationTimelineProjector;
 use Doctrine\ORM\EntityManagerInterface;
 
 class TelnyxCallProjectionService
@@ -28,6 +29,7 @@ class TelnyxCallProjectionService
         private readonly CallLegRepository $legRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly ClientStateService $clientState,
+        private readonly CommunicationTimelineProjector $timelineProjector,
     ) {
     }
 
@@ -67,6 +69,9 @@ class TelnyxCallProjectionService
         $leg?->touch();
 
         $this->entityManager->flush();
+        if (null !== $session->getProperty()) {
+            $this->timelineProjector->syncProperty($session->getProperty());
+        }
     }
 
     /**

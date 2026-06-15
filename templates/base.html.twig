@@ -30,6 +30,7 @@
                         {% if crmCurrentTenant %}
                             <a class="nav-link" href="{{ path('crm_property_index') }}">Properties</a>
                             <a class="nav-link" href="{{ path('crm_rfq_invitation_index') }}">RFQ Invitations</a>
+                            <a class="nav-link" href="{{ path('crm_communication_search') }}">Search</a>
                             {% if crmCurrentMembership and 'ROLE_TENANT_ADMIN' in crmCurrentMembership.roles %}
                                 <a class="nav-link" href="{{ path('crm_admin_users') }}">Users</a>
                             {% endif %}

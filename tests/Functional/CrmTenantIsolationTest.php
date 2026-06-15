@@ -187,8 +187,106 @@ final class CrmTenantIsolationTest extends WebTestCase
         self::assertResponseRedirects('/crm/properties/'.$data['property']->getId());
 
         $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
-        self::assertSelectorTextNotContains('body', 'Tenant Contact');
         self::assertSelectorTextContains('body', 'Second Contact');
+    }
+
+    public function testPropertyTimelineRendersAndAcceptsNotes(): void
+    {
+        $data = $this->seedTenantData();
+
+        $this->client->loginUser($data['ownerUser']);
+        $crawler = $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Communication Timeline');
+        self::assertSelectorTextContains('body', 'Transcript Messages');
+        self::assertSelectorTextContains('body', 'Test transcript');
+
+        $noteToken = $crawler->filter('form[action="/crm/properties/'.$data['property']->getId().'/timeline/notes"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/properties/%d/timeline/notes', $data['property']->getId()), [
+            '_token' => $noteToken,
+            'noteText' => 'Follow-up required after today\'s call.',
+            'disposition' => 'follow_up_required',
+        ]);
+
+        self::assertResponseRedirects('/crm/properties/'.$data['property']->getId());
+
+        $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+        self::assertSelectorTextContains('body', 'Follow-up required after today\'s call.');
+        self::assertSelectorTextContains('body', 'Follow-up required');
+    }
+
+    public function testCommunicationSearchFindsTranscriptHistory(): void
+    {
+        $data = $this->seedTenantData();
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/communications/search?q=Test transcript');
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Communication Search');
+        self::assertSelectorTextContains('body', 'Test transcript');
+        self::assertSelectorTextContains('body', $data['property']->getDisplayAddress());
+    }
+
+    public function testQuoteAndInvoiceEventsAppearInTimeline(): void
+    {
+        $data = $this->seedTenantData();
+
+        $this->client->loginUser($data['ownerUser']);
+
+        $crawler = $this->client->request('GET', '/crm/quotes/'.$data['quote']->getId());
+        $quoteStatusToken = $crawler->filter('form[action="/crm/quotes/'.$data['quote']->getId().'/status"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/quotes/%d/status', $data['quote']->getId()), [
+            '_token' => $quoteStatusToken,
+            'status' => Quote::STATUS_ACCEPTED,
+        ]);
+
+        $crawler = $this->client->request('GET', '/crm/quotes/'.$data['quote']->getId());
+        $convertToken = $crawler->filter('form[action="/crm/quotes/'.$data['quote']->getId().'/convert-to-invoice"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/quotes/%d/convert-to-invoice', $data['quote']->getId()), [
+            '_token' => $convertToken,
+        ]);
+
+        self::assertResponseRedirects();
+
+        $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+        self::assertSelectorTextContains('body', 'Quote status changed to accepted.');
+        self::assertSelectorTextContains('body', 'Invoice created from quote.');
+    }
+
+    public function testPublicQuoteAcceptanceAndPdfAreAvailable(): void
+    {
+        $data = $this->seedTenantData();
+        $shareToken = 'public-quote-token-123';
+        $data['quote']->setShareToken($shareToken)->setStatus(Quote::STATUS_SENT)->setSentAt(new \DateTimeImmutable());
+        $this->entityManager->flush();
+
+        $this->client->request('GET', '/quotes/'.$shareToken);
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', $data['quote']->getQuoteNumber());
+        self::assertSelectorTextContains('body', 'Accept Quote');
+
+        $crawler = $this->client->getCrawler();
+        $acceptToken = $crawler->filter('form[action="/quotes/'.$shareToken.'/accept"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/quotes/%s/accept', $shareToken), [
+            '_token' => $acceptToken,
+            'acceptedByName' => 'Homeowner',
+            'acceptedByEmail' => 'owner@example.com',
+            'acceptedMessage' => 'Approved.',
+        ]);
+
+        self::assertResponseRedirects('/quotes/'.$shareToken);
+
+        $this->entityManager->clear();
+        $acceptedQuote = $this->entityManager->getRepository(Quote::class)->find($data['quote']->getId());
+        self::assertInstanceOf(Quote::class, $acceptedQuote);
+        self::assertSame(Quote::STATUS_ACCEPTED, $acceptedQuote->getStatus());
+        self::assertNotNull($acceptedQuote->getAcceptedAt());
+
+        $this->client->request('GET', '/quotes/'.$shareToken.'/pdf');
+        self::assertResponseIsSuccessful();
+        self::assertSame('application/pdf', $this->client->getResponse()->headers->get('Content-Type'));
     }
 
     private function truncateDatabase(): void

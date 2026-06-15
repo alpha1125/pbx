@@ -5,19 +5,19 @@ declare(strict_types=1);
 namespace App\Controller\Crm;
 
 use App\Entity\Property;
+use App\Entity\CommunicationTimelineItem;
+use App\Entity\User;
 use App\Repository\AuditLogRepository;
-use App\Repository\CallSessionRepository;
-use App\Repository\CallTranscriptRepository;
 use App\Repository\EquipmentRepository;
-use App\Repository\EstimateRepository;
-use App\Repository\InvoiceRepository;
+use App\Repository\CommunicationTimelineItemRepository;
 use App\Repository\PropertyContactRepository;
 use App\Repository\PropertyRepository;
-use App\Repository\QuoteRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
+use App\Service\CommunicationTimelineProjector;
 use App\Service\CrmInputNormalizer;
 use App\Service\CurrentTenantProviderInterface;
+use App\Service\TranscriptMessageViewBuilder;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -210,12 +210,10 @@ final class PropertyController extends AbstractController
         PropertyRepository $propertyRepository,
         PropertyContactRepository $propertyContactRepository,
         EquipmentRepository $equipmentRepository,
-        EstimateRepository $estimateRepository,
-        QuoteRepository $quoteRepository,
-        InvoiceRepository $invoiceRepository,
-        CallSessionRepository $callSessionRepository,
-        CallTranscriptRepository $callTranscriptRepository,
         AuditLogRepository $auditLogRepository,
+        CommunicationTimelineItemRepository $timelineRepository,
+        CommunicationTimelineProjector $timelineProjector,
+        TranscriptMessageViewBuilder $messageBuilder,
     ): Response {
         $tenant = $tenantProvider->requireCurrentTenant();
         $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
@@ -224,11 +222,32 @@ final class PropertyController extends AbstractController
         }
 
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
+        $timelineProjector->syncProperty($property);
 
-        $calls = $callSessionRepository->findByTenantAndProperty($tenant, $property);
         $contactPage = max(1, (int) $request->query->get('contactPage', 1));
         $equipmentPage = max(1, (int) $request->query->get('equipmentPage', 1));
         $sublistPageSize = 10;
+        $timelineFilter = (string) $request->query->get('activity', 'all');
+        $searchQuery = trim((string) $request->query->get('q', ''));
+        $timelineTypes = $this->timelineTypesForFilter($timelineFilter);
+        $timelineItems = $timelineRepository->findByTenantAndPropertyOrdered(
+            $tenant,
+            $property,
+            $timelineTypes,
+            '' !== $searchQuery ? $searchQuery : null,
+            100,
+        );
+        $transcriptMessages = [];
+        foreach ($timelineItems as $item) {
+            if (CommunicationTimelineItem::TYPE_TRANSCRIPT !== $item->getItemType()) {
+                continue;
+            }
+
+            $transcript = $item->getCallTranscript();
+            if (null !== $transcript && null !== $transcript->getId()) {
+                $transcriptMessages[$transcript->getId()] = $messageBuilder->build($transcript);
+            }
+        }
 
         return $this->render('crm/property/show.html.twig', [
             'tenant' => $tenant,
@@ -241,13 +260,99 @@ final class PropertyController extends AbstractController
             'equipmentPage' => $equipmentPage,
             'equipmentPageSize' => $sublistPageSize,
             'totalEquipment' => $equipmentRepository->countByProperty($property),
-            'estimates' => $estimateRepository->findByProperty($property),
-            'quotes' => $quoteRepository->findByProperty($property),
-            'invoices' => $invoiceRepository->findByProperty($property),
-            'calls' => $calls,
-            'transcripts' => $callTranscriptRepository->findBySessions($calls),
+            'timelineItems' => $timelineItems,
+            'timelineFilter' => $timelineFilter,
+            'timelineSearch' => $searchQuery,
+            'transcriptMessages' => $transcriptMessages,
             'auditLogs' => $auditLogRepository->findRecentByProperty($tenant, $property),
         ]);
+    }
+
+    #[Route('/crm/properties/{id<\d+>}/timeline/notes', name: 'crm_property_timeline_note', methods: ['POST'])]
+    public function addTimelineNote(
+        int $id,
+        Request $request,
+        CurrentTenantProviderInterface $tenantProvider,
+        PropertyRepository $propertyRepository,
+        CommunicationTimelineItemRepository $timelineRepository,
+        EntityManagerInterface $entityManager,
+        AuditLogger $auditLogger,
+    ): RedirectResponse {
+        $tenant = $tenantProvider->requireCurrentTenant();
+        $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
+        if (null === $property) {
+            throw $this->createNotFoundException('Property not found.');
+        }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $property);
+
+        if (!$this->isCsrfTokenValid('crm_property_timeline_note_'.$property->getId(), (string) $request->request->get('_token'))) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $noteText = trim((string) $request->request->get('noteText', ''));
+        if ('' === $noteText) {
+            $this->addFlash('error', 'Note text is required.');
+
+            return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+        }
+
+        $note = (new CommunicationTimelineItem($tenant, CommunicationTimelineItem::TYPE_MANUAL_NOTE, new \DateTimeImmutable()))
+            ->setProperty($property)
+            ->setBodyText($noteText)
+            ->setDisposition($this->normalizeDisposition($request->request->get('disposition')))
+            ->setCreatedBy($this->getUser() instanceof User ? $this->getUser() : null)
+            ->setSourceKey(sprintf('manual_note:%d:%s', $property->getId(), bin2hex(random_bytes(8))));
+
+        $entityManager->persist($note);
+        $entityManager->flush();
+        $auditLogger->log($tenant, 'communication_timeline_item', (string) $note->getId(), 'timeline.note_added', null, [
+            'propertyId' => $property->getId(),
+            'disposition' => $note->getDisposition(),
+        ]);
+
+        return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+    }
+
+    #[Route('/crm/properties/{id<\d+>}/timeline/{itemId<\d+>}/disposition', name: 'crm_property_timeline_disposition', methods: ['POST'])]
+    public function updateTimelineDisposition(
+        int $id,
+        int $itemId,
+        Request $request,
+        CurrentTenantProviderInterface $tenantProvider,
+        PropertyRepository $propertyRepository,
+        CommunicationTimelineItemRepository $timelineRepository,
+        EntityManagerInterface $entityManager,
+        AuditLogger $auditLogger,
+    ): RedirectResponse {
+        $tenant = $tenantProvider->requireCurrentTenant();
+        $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
+        if (null === $property) {
+            throw $this->createNotFoundException('Property not found.');
+        }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $property);
+
+        $item = $timelineRepository->find($itemId);
+        if (null === $item || $item->getTenant()->getId() !== $tenant->getId() || null === $item->getProperty() || $item->getProperty()->getId() !== $property->getId()) {
+            throw $this->createNotFoundException('Timeline item not found.');
+        }
+
+        if (!$this->isCsrfTokenValid('crm_property_timeline_disposition_'.$item->getId(), (string) $request->request->get('_token'))) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $item
+            ->setDisposition($this->normalizeDisposition($request->request->get('disposition')))
+            ->touch();
+        $entityManager->flush();
+        $auditLogger->log($tenant, 'communication_timeline_item', (string) $item->getId(), 'timeline.disposition_updated', null, [
+            'propertyId' => $property->getId(),
+            'itemType' => $item->getItemType(),
+            'disposition' => $item->getDisposition(),
+        ]);
+
+        return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
     }
 
     private function applyPropertyForm(Property $property, Request $request, CrmInputNormalizer $normalizer): void
@@ -276,5 +381,45 @@ final class PropertyController extends AbstractController
         }
 
         return null;
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function timelineTypesForFilter(string $filter): ?array
+    {
+        return match ($filter) {
+            'calls' => [
+                CommunicationTimelineItem::TYPE_CALL,
+                CommunicationTimelineItem::TYPE_RECORDING,
+            ],
+            'transcripts' => [
+                CommunicationTimelineItem::TYPE_TRANSCRIPT,
+                CommunicationTimelineItem::TYPE_SUMMARY,
+            ],
+            'notes' => [
+                CommunicationTimelineItem::TYPE_MANUAL_NOTE,
+                CommunicationTimelineItem::TYPE_STATUS_CHANGE,
+                CommunicationTimelineItem::TYPE_QUOTE_EVENT,
+                CommunicationTimelineItem::TYPE_INVOICE_EVENT,
+            ],
+            default => null,
+        };
+    }
+
+    private function normalizeDisposition(mixed $value): ?string
+    {
+        $value = is_string($value) ? trim($value) : '';
+        if ('' === $value) {
+            return null;
+        }
+
+        return in_array($value, [
+            CommunicationTimelineItem::DISPOSITION_NO_ANSWER,
+            CommunicationTimelineItem::DISPOSITION_QUOTE_REQUESTED,
+            CommunicationTimelineItem::DISPOSITION_FOLLOW_UP_REQUIRED,
+            CommunicationTimelineItem::DISPOSITION_JOB_BOOKED,
+            CommunicationTimelineItem::DISPOSITION_SPAM,
+        ], true) ? $value : null;
     }
 }

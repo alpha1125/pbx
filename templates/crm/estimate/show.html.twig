@@ -9,10 +9,16 @@
             <h1 class="h2 mt-2 mb-1">{{ estimate.title ?: 'Estimate #' ~ estimate.id }}</h1>
             <p class="text-body-secondary mb-0">{{ estimate.status|replace({'_':' '})|title }}</p>
         </div>
-        <form method="post" action="{{ path('crm_estimate_convert_to_quote', {id: estimate.id}) }}">
-            <input type="hidden" name="_token" value="{{ csrf_token('estimate_convert_' ~ estimate.id) }}">
-            <button class="btn btn-primary" type="submit">Convert to Quote</button>
-        </form>
+        <div class="d-grid gap-2">
+            <form method="post" action="{{ path('crm_estimate_duplicate', {id: estimate.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('estimate_duplicate_' ~ estimate.id) }}">
+                <button class="btn btn-outline-secondary w-100" type="submit">Duplicate Estimate</button>
+            </form>
+            <form method="post" action="{{ path('crm_estimate_convert_to_quote', {id: estimate.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('estimate_convert_' ~ estimate.id) }}">
+                <button class="btn btn-primary w-100" type="submit">Convert to Quote</button>
+            </form>
+        </div>
     </div>
 
     <div class="row g-4">
@@ -20,48 +26,93 @@
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h2 class="h5">Line Items</h2>
-                    <div class="table-responsive">
-                        <table class="table align-middle">
-                            <thead>
-                                <tr>
-                                    <th>Description</th>
-                                    <th>Qty</th>
-                                    <th>Unit Price</th>
-                                    <th>Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for lineItem in lineItems %}
-                                    <tr>
-                                        <td>{{ lineItem.description }}</td>
-                                        <td>{{ lineItem.quantity }}</td>
-                                        <td>${{ (lineItem.unitPriceCents / 100)|number_format(2) }}</td>
-                                        <td>${{ (lineItem.totalCents / 100)|number_format(2) }}</td>
-                                    </tr>
-                                {% else %}
-                                    <tr>
-                                        <td colspan="4" class="text-center text-body-secondary py-4">No line items yet.</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <th colspan="3" class="text-end">Total</th>
-                                    <th>${{ (estimate.totalCents / 100)|number_format(2) }}</th>
-                                </tr>
-                            </tfoot>
-                        </table>
+                    <div class="d-grid gap-3">
+                        {% for lineItem in lineItems %}
+                            <div class="border rounded-3 p-3 bg-body-tertiary">
+                                <form method="post" action="{{ path('crm_estimate_update_line_item', {estimateId: estimate.id, lineItemId: lineItem.id}) }}" class="row g-3 align-items-end">
+                                    <input type="hidden" name="_token" value="{{ csrf_token('estimate_line_item_update_' ~ lineItem.id) }}">
+                                    <div class="col-md-3">
+                                        <label class="form-label small" for="section-{{ lineItem.id }}">Section</label>
+                                        <input class="form-control form-control-sm" id="section-{{ lineItem.id }}" name="sectionLabel" value="{{ lineItem.sectionLabel ?: '' }}" placeholder="Section">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small" for="description-{{ lineItem.id }}">Description</label>
+                                        <textarea class="form-control form-control-sm" id="description-{{ lineItem.id }}" name="description" rows="2" required>{{ lineItem.description }}</textarea>
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label small" for="quantity-{{ lineItem.id }}">Qty</label>
+                                        <input class="form-control form-control-sm" id="quantity-{{ lineItem.id }}" name="quantity" value="{{ lineItem.quantity }}" required>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small" for="unitPrice-{{ lineItem.id }}">Unit Price</label>
+                                        <input class="form-control form-control-sm" id="unitPrice-{{ lineItem.id }}" name="unitPrice" value="{{ (lineItem.unitPriceCents / 100)|number_format(2, '.', '') }}" required>
+                                    </div>
+                                    <div class="col-md-2 d-grid gap-2">
+                                        <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                                    </div>
+                                </form>
+                                <div class="d-flex gap-2 mt-3">
+                                    <form method="post" action="{{ path('crm_estimate_move_line_item', {estimateId: estimate.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('estimate_line_item_move_' ~ lineItem.id) }}">
+                                        <input type="hidden" name="direction" value="up">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">Up</button>
+                                    </form>
+                                    <form method="post" action="{{ path('crm_estimate_move_line_item', {estimateId: estimate.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('estimate_line_item_move_' ~ lineItem.id) }}">
+                                        <input type="hidden" name="direction" value="down">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">Down</button>
+                                    </form>
+                                    <form method="post" action="{{ path('crm_estimate_delete_line_item', {estimateId: estimate.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('estimate_line_item_delete_' ~ lineItem.id) }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Delete this line item?')">Delete</button>
+                                    </form>
+                                </div>
+                                <div class="text-end small text-body-secondary mt-2">Line total: ${{ (lineItem.totalCents / 100)|number_format(2) }}</div>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-body-secondary py-4">No line items yet.</div>
+                        {% endfor %}
+                        <div class="text-end fw-semibold">Total: ${{ (estimate.totalCents / 100)|number_format(2) }}</div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="col-lg-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h2 class="h5">Estimate Details</h2>
+                    <form method="post" action="{{ path('crm_estimate_update', {id: estimate.id}) }}" class="d-grid gap-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('estimate_update_' ~ estimate.id) }}">
+                        <div>
+                            <label class="form-label" for="title">Title</label>
+                            <input class="form-control" id="title" name="title" value="{{ estimate.title ?: '' }}">
+                        </div>
+                        <div>
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="3">{{ estimate.notes ?: '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="form-label" for="exclusions">Exclusions</label>
+                            <textarea class="form-control" id="exclusions" name="exclusions" rows="3">{{ estimate.exclusions ?: '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="form-label" for="assumptions">Assumptions</label>
+                            <textarea class="form-control" id="assumptions" name="assumptions" rows="3">{{ estimate.assumptions ?: '' }}</textarea>
+                        </div>
+                        <button class="btn btn-outline-primary" type="submit">Save Estimate</button>
+                    </form>
+                </div>
+            </div>
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h2 class="h5">Add Line Item</h2>
                     <form method="post" action="{{ path('crm_estimate_add_line_item', {id: estimate.id}) }}" class="d-grid gap-3">
                         <input type="hidden" name="_token" value="{{ csrf_token('estimate_line_item_' ~ estimate.id) }}">
+                        <div>
+                            <label class="form-label" for="sectionLabel">Section</label>
+                            <input class="form-control" id="sectionLabel" name="sectionLabel" placeholder="Scope block or section">
+                        </div>
                         <div>
                             <label class="form-label" for="description">Description</label>
                             <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
