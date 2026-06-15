@@ -29,6 +29,16 @@ class QuoteRepository extends ServiceEntityRepository
         return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
     }
 
+    public function countByTenant(Tenant $tenant): int
+    {
+        return (int) $this->createQueryBuilder('q')
+            ->select('COUNT(q.id)')
+            ->andWhere('q.tenant = :tenant')
+            ->setParameter('tenant', $tenant)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     public function findOneByShareToken(string $token): ?Quote
     {
         return $this->findOneBy(['shareToken' => $token]);
