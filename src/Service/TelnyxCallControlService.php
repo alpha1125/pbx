@@ -11,6 +11,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 final class TelnyxCallControlService
 {
     private const string BASE_URL = 'https://api.telnyx.com/v2';
+    private const string RECORDING_START_ACTION = 'record_start';
+    private const string TRANSCRIPTION_START_ACTION = 'transcription_start';
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -53,18 +55,42 @@ final class TelnyxCallControlService
     }
 
     /** @return array<string, mixed>|null */
-    public function startRecording(string $callControlId, string $format = 'wav', ?string $commandId = null): ?array
+    /** @param array<string, mixed> $options */
+    public function startRecording(string $callControlId, array $options = []): ?array
     {
+        $commandId = $this->stringOption($options, 'command_id');
+        unset($options['command_id']);
+
+        $format = $this->stringOption($options, 'format') ?? 'wav';
         if (!in_array($format, ['wav', 'mp3'], true)) {
             throw new \InvalidArgumentException('Recording format must be "wav" or "mp3".');
         }
 
-        return $this->postAction($callControlId, 'record_start', [
+        $body = [
             'format' => $format,
-            'channels' => 'dual',
-            'recording_track' => 'both',
-            'transcription' => false,
-        ], [], $commandId);
+            'channels' => $this->stringOption($options, 'channels') ?? 'dual',
+        ];
+
+        foreach ($options as $key => $value) {
+            $body[$key] = $value;
+        }
+
+        return $this->postAction($callControlId, self::RECORDING_START_ACTION, $body, [], $commandId);
+    }
+
+    /** @param array<string, mixed> $options */
+    public function startTranscription(string $callControlId, array $options = []): ?array
+    {
+        $commandId = $this->stringOption($options, 'command_id');
+        unset($options['command_id']);
+
+        return $this->postAction(
+            $callControlId,
+            self::TRANSCRIPTION_START_ACTION,
+            $options,
+            [],
+            $commandId,
+        );
     }
 
     /** @return array<string, mixed>|null */
@@ -162,7 +188,10 @@ final class TelnyxCallControlService
             $body['command_id'] = $commandId;
         }
 
-        $logContext = ['action' => $action] + $context;
+        $logContext = [
+            'action' => $action,
+            'request_body' => $this->sanitizePayload($body),
+        ] + $context;
         $this->logger->info('Sending Telnyx Call Control action.', $logContext);
 
         try {
@@ -183,7 +212,7 @@ final class TelnyxCallControlService
             if ($statusCode < 200 || $statusCode >= 300) {
                 $this->logger->error('Telnyx Call Control action failed.', $logContext + [
                     'status_code' => $statusCode,
-                    'response' => substr($responseBody, 0, 1000),
+                    'response' => $this->sanitizeResponse($responseBody),
                 ]);
 
                 throw new \RuntimeException(sprintf(
@@ -214,5 +243,32 @@ final class TelnyxCallControlService
                 previous: $exception,
             );
         }
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function sanitizePayload(array $payload): array
+    {
+        return $payload;
+    }
+
+    private function sanitizeResponse(string $responseBody): string|array
+    {
+        try {
+            $decoded = json_decode($responseBody, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return substr($responseBody, 0, 1000);
+        }
+
+        return is_array($decoded) ? $decoded : substr($responseBody, 0, 1000);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function stringOption(array $options, string $key): ?string
+    {
+        $value = $options[$key] ?? null;
+
+        return is_string($value) && '' !== trim($value) ? $value : null;
     }
 }

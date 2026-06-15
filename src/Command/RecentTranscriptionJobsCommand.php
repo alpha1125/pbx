@@ -29,13 +29,14 @@ final class RecentTranscriptionJobsCommand extends Command
         foreach ($this->repository->findRecent() as $job) {
             $rows[] = [
                 $job->getId(),
-                $job->getCallRecording()->getId(),
-                $job->getStatus(),
+                $job->getCallSession()?->getId() ?? '',
+                $job->getCallRecording()?->getId() ?? '',
                 $job->getProvider(),
+                $job->getProviderJobId() ?? '',
+                $job->getProviderModel() ?? '',
+                $job->getProviderStatus() ?? '',
+                $job->getStatus(),
                 $job->getAttempts(),
-                $job->getLockedBy() ?? '',
-                $job->getLockedUntil()?->format(DATE_ATOM) ?? '',
-                $job->getInputS3Key(),
                 $job->getCompletedAt()?->format(DATE_ATOM) ?? '',
                 null === $job->getErrorMessage() ? '' : mb_strimwidth($job->getErrorMessage(), 0, 80, '...'),
             ];
@@ -43,13 +44,14 @@ final class RecentTranscriptionJobsCommand extends Command
 
         (new SymfonyStyle($input, $output))->table([
             'ID',
+            'Call Session ID',
             'Recording ID',
-            'Status',
             'Provider',
+            'Provider Job ID',
+            'Provider Model',
+            'Provider Status',
+            'Status',
             'Attempts',
-            'Locked By',
-            'Locked Until',
-            'Input S3 Key',
             'Completed At',
             'Error',
         ], $rows);

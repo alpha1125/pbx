@@ -216,7 +216,12 @@ class TelnyxCallProjectionService
      */
     private function linkParentSession(CallSession $session, array $payload): void
     {
-        $parentProviderSessionId = $this->inboundSessionIdFromClientState($this->stringValue($payload, 'client_state'));
+        $clientState = $this->stringValue($payload, 'client_state');
+        $parentProviderSessionId = $this->inboundSessionIdFromClientState($clientState);
+        $flowType = $this->flowTypeFromClientState($clientState);
+        if (null !== $flowType && null === $session->getFlowType()) {
+            $session->setFlowType($flowType);
+        }
         if (null === $parentProviderSessionId || $parentProviderSessionId === $session->getProviderSessionId()) {
             return;
         }
@@ -263,8 +268,18 @@ class TelnyxCallProjectionService
     private function inboundSessionIdFromClientState(?string $clientState): ?string
     {
         $state = $this->clientState->decode($clientState);
-        $sessionId = is_array($state) ? ($state['inbound_call_session_id'] ?? null) : null;
+        $sessionId = is_array($state)
+            ? ($state['inbound_call_session_id'] ?? $state['root_call_session_id'] ?? null)
+            : null;
 
         return is_string($sessionId) && '' !== $sessionId ? $sessionId : null;
+    }
+
+    private function flowTypeFromClientState(?string $clientState): ?string
+    {
+        $state = $this->clientState->decode($clientState);
+        $flowType = is_array($state) ? ($state['flow'] ?? null) : null;
+
+        return is_string($flowType) && '' !== trim($flowType) ? $flowType : null;
     }
 }

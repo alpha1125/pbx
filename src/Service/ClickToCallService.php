@@ -23,13 +23,13 @@ class ClickToCallService
         private readonly CallSessionRepository $sessionRepository,
         private readonly CallLegRepository $legRepository,
         private readonly TelnyxCallControlService $callControl,
-        private readonly TelnyxRecordingStartService $recordingStart,
+        private readonly TelnyxCaptureService $capture,
+        private readonly CapturePolicyResolver $capturePolicyResolver,
         private readonly ClientStateService $clientState,
         private readonly LoggerInterface $logger,
         private readonly string $fromNumber,
         private readonly string $connectionId,
         private readonly string $defaultAgentNumber,
-        private readonly bool $recordingEnabled,
     ) {
     }
 
@@ -308,12 +308,24 @@ class ClickToCallService
             ->setBridgeStartedAt($request->getBridgeStartedAt() ?? new \DateTimeImmutable())
             ->touch();
 
-        if ($this->recordingEnabled && null === $request->getRecordingStartedAt()) {
-            $this->recordingStart->startForClickToCallRequest($request);
-            $request
-                ->setStatus(ClickToCallRequest::STATUS_RECORDING)
-                ->setRecordingStartedAt(new \DateTimeImmutable())
-                ->touch();
+        if (null === $request->getRecordingStartedAt()) {
+            $policy = $this->capturePolicyResolver->defaultForContext(CallSession::FLOW_TYPE_CLICK_TO_CALL);
+            $agentLeg = null !== $request->getAgentCallLegId()
+                ? $this->legRepository->findOneByProviderLegId($request->getAgentCallLegId())
+                : null;
+            if (null !== $agentLeg) {
+                $this->capture->applyPolicyToLeg(
+                    $agentLeg,
+                    $policy,
+                    sprintf('click-to-call:%d', $request->getId()),
+                );
+                if ($policy->recordAudio) {
+                    $request
+                        ->setStatus(ClickToCallRequest::STATUS_RECORDING)
+                        ->setRecordingStartedAt(new \DateTimeImmutable())
+                        ->touch();
+                }
+            }
         }
 
         $this->entityManager->flush();
@@ -472,6 +484,7 @@ class ClickToCallService
     {
         return sprintf('click-to-call:%d:%s', $request->getId(), $suffix);
     }
+
 
     /**
      * @param array<string, mixed>|null $response

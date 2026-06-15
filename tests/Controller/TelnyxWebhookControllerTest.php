@@ -12,8 +12,12 @@ use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
 use App\Service\ClientStateService;
 use App\Service\ClickToCallService;
+use App\Service\DevTelnyxTranscriptionTestService;
+use App\Service\TelnyxCaptureService;
 use App\Service\TelnyxRecordingProjectionService;
-use App\Service\TelnyxRecordingStartService;
+use App\Transcription\SttProviderInterface;
+use App\Transcription\SttProviderRegistry;
+use App\Transcription\WebhookDrivenSttProviderInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -104,8 +108,11 @@ final class TelnyxWebhookControllerTest extends TestCase
         $projection->expects(self::never())->method('project');
         $recordingProjection = $this->createMock(TelnyxRecordingProjectionService::class);
         $recordingProjection->expects(self::never())->method('project');
-        $recordingStart = $this->createMock(TelnyxRecordingStartService::class);
-        $recordingStart->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture->expects(self::never())->method('startForInboundIntroCompleted');
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::never())->method('handleWebhook');
 
         $response = $this->controller(new NullLogger())(
             $this->webhookRequest('event-duplicate', 'call.initiated'),
@@ -113,7 +120,9 @@ final class TelnyxWebhookControllerTest extends TestCase
             $entityManager,
             $projection,
             $recordingProjection,
-            $recordingStart,
+            $capture,
+            $devTest,
+            $this->providers(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -136,8 +145,11 @@ final class TelnyxWebhookControllerTest extends TestCase
             ->willThrowException(new \RuntimeException('projection failed'));
         $recordingProjection = $this->createMock(TelnyxRecordingProjectionService::class);
         $recordingProjection->expects(self::once())->method('project');
-        $recordingStart = $this->createMock(TelnyxRecordingStartService::class);
-        $recordingStart->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture->expects(self::never())->method('startForInboundIntroCompleted');
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())
             ->method('error')
@@ -155,7 +167,9 @@ final class TelnyxWebhookControllerTest extends TestCase
             $entityManager,
             $projection,
             $recordingProjection,
-            $recordingStart,
+            $capture,
+            $devTest,
+            $this->providers(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -178,8 +192,11 @@ final class TelnyxWebhookControllerTest extends TestCase
         $recordingProjection->expects(self::once())
             ->method('project')
             ->willThrowException(new \RuntimeException('recording projection failed'));
-        $recordingStart = $this->createMock(TelnyxRecordingStartService::class);
-        $recordingStart->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture->expects(self::never())->method('startForInboundIntroCompleted');
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())
             ->method('error')
@@ -197,7 +214,90 @@ final class TelnyxWebhookControllerTest extends TestCase
             $entityManager,
             $projection,
             $recordingProjection,
-            $recordingStart,
+            $capture,
+            $devTest,
+            $this->providers(),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    public function testRecordingSavedWebhookIsRoutedToTranscriptionProvider(): void
+    {
+        $repository = $this->createMock(TelnyxEventRepository::class);
+        $repository->expects(self::once())->method('findOneByProviderEventId')->willReturn(null);
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('persist');
+        $entityManager->expects(self::once())->method('flush');
+        $projection = $this->createMock(TelnyxCallProjectionService::class);
+        $projection->expects(self::once())->method('project');
+        $recordingProjection = $this->createMock(TelnyxRecordingProjectionService::class);
+        $recordingProjection->expects(self::once())->method('project');
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture->expects(self::never())->method('startForInboundIntroCompleted');
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+
+        $provider = new class() implements SttProviderInterface, WebhookDrivenSttProviderInterface {
+            public bool $handled = false;
+
+            public function getName(): string
+            {
+                return 'telnyx';
+            }
+
+            public function submit(\App\Entity\TranscriptionJob $job): void
+            {
+            }
+
+            public function handleWebhook(array $payload, TelnyxEvent $event): void
+            {
+                $this->handled = true;
+            }
+        };
+
+        $response = $this->controller(new NullLogger())(
+            $this->webhookRequest('event-recording-transcription-route', 'call.recording.saved'),
+            $repository,
+            $entityManager,
+            $projection,
+            $recordingProjection,
+            $capture,
+            $devTest,
+            new SttProviderRegistry([$provider], 'telnyx'),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($provider->handled);
+    }
+
+    public function testInboundSpeakEndedStartsCapture(): void
+    {
+        $repository = $this->createMock(TelnyxEventRepository::class);
+        $repository->expects(self::once())->method('findOneByProviderEventId')->willReturn(null);
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('persist');
+        $entityManager->expects(self::once())->method('flush');
+        $projection = $this->createMock(TelnyxCallProjectionService::class);
+        $projection->expects(self::once())->method('project');
+        $recordingProjection = $this->createMock(TelnyxRecordingProjectionService::class);
+        $recordingProjection->expects(self::once())->method('project');
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::once())->method('startForInboundIntroCompleted');
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+
+        $response = $this->controller(new NullLogger())(
+            $this->webhookRequest('event-speak-ended-capture', 'call.speak.ended'),
+            $repository,
+            $entityManager,
+            $projection,
+            $recordingProjection,
+            $capture,
+            $devTest,
+            $this->providers(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -245,5 +345,21 @@ final class TelnyxWebhookControllerTest extends TestCase
         $service->method('handleWebhook')->willReturn($handled);
 
         return $service;
+    }
+
+    private function providers(): SttProviderRegistry
+    {
+        $provider = new class() implements SttProviderInterface {
+            public function getName(): string
+            {
+                return 'telnyx';
+            }
+
+            public function submit(\App\Entity\TranscriptionJob $job): void
+            {
+            }
+        };
+
+        return new SttProviderRegistry([$provider], 'telnyx');
     }
 }

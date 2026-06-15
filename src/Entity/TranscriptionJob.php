@@ -24,15 +24,32 @@ class TranscriptionJob
     private ?int $id = null;
 
     #[ORM\ManyToOne]
-    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
-    private CallRecording $callRecording;
+    #[ORM\JoinColumn(nullable: true, onDelete: 'CASCADE')]
+    private ?CallRecording $callRecording = null;
 
     #[ORM\ManyToOne]
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?CallSession $callSession = null;
 
-    #[ORM\Column(length: 50, options: ['default' => 'local_worker'])]
-    private string $provider = 'local_worker';
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?CallLeg $callLeg = null;
+
+    #[ORM\Column(length: 50, options: ['default' => 'telnyx'])]
+    private string $provider = 'telnyx';
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $providerJobId = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $providerStatus = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $providerModel = null;
+
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    private ?array $providerConfig = null;
 
     #[ORM\Column(length: 50)]
     private string $status = 'pending';
@@ -57,6 +74,9 @@ class TranscriptionJob
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $startedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $submittedAt = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $completedAt = null;
@@ -84,6 +104,10 @@ class TranscriptionJob
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
     private ?array $transcriptJson = null;
 
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    private ?array $rawProviderResponse = null;
+
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $transcriptS3Bucket = null;
 
@@ -99,23 +123,37 @@ class TranscriptionJob
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $updatedAt;
 
-    public function __construct(CallRecording $callRecording)
+    public function __construct(?CallRecording $callRecording = null)
     {
         $this->callRecording = $callRecording;
-        $this->callSession = $callRecording->getCallSession();
-        $this->inputS3Bucket = $callRecording->getS3Bucket() ?? '';
-        $this->inputS3Key = $callRecording->getS3Key() ?? '';
-        $this->channelMapping = $callRecording->getChannelMapping();
+        $this->callSession = $callRecording?->getCallSession();
+        $this->callLeg = $callRecording?->getCallLeg();
+        $this->inputS3Bucket = $callRecording?->getS3Bucket() ?? '';
+        $this->inputS3Key = $callRecording?->getS3Key() ?? '';
+        $this->channelMapping = $callRecording?->getChannelMapping();
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }
 
     public function getId(): ?int { return $this->id; }
-    public function getCallRecording(): CallRecording { return $this->callRecording; }
+    public function getCallRecording(): ?CallRecording { return $this->callRecording; }
+    public function setCallRecording(?CallRecording $callRecording): static { $this->callRecording = $callRecording; return $this; }
     public function getCallSession(): ?CallSession { return $this->callSession; }
     public function setCallSession(?CallSession $callSession): static { $this->callSession = $callSession; return $this; }
+    public function getCallLeg(): ?CallLeg { return $this->callLeg; }
+    public function setCallLeg(?CallLeg $callLeg): static { $this->callLeg = $callLeg; return $this; }
     public function getProvider(): string { return $this->provider; }
     public function setProvider(string $provider): static { $this->provider = $provider; return $this; }
+    public function getProviderJobId(): ?string { return $this->providerJobId; }
+    public function setProviderJobId(?string $providerJobId): static { $this->providerJobId = $providerJobId; return $this; }
+    public function getProviderStatus(): ?string { return $this->providerStatus; }
+    public function setProviderStatus(?string $providerStatus): static { $this->providerStatus = $providerStatus; return $this; }
+    public function getProviderModel(): ?string { return $this->providerModel; }
+    public function setProviderModel(?string $providerModel): static { $this->providerModel = $providerModel; return $this; }
+    /** @return array<string, mixed>|null */
+    public function getProviderConfig(): ?array { return $this->providerConfig; }
+    /** @param array<string, mixed>|null $providerConfig */
+    public function setProviderConfig(?array $providerConfig): static { $this->providerConfig = $providerConfig; return $this; }
     public function getStatus(): string { return $this->status; }
     public function setStatus(string $status): static { $this->status = $status; return $this; }
     public function getPriority(): int { return $this->priority; }
@@ -133,6 +171,8 @@ class TranscriptionJob
     public function setClaimedAt(?\DateTimeImmutable $claimedAt): static { $this->claimedAt = $claimedAt; return $this; }
     public function getStartedAt(): ?\DateTimeImmutable { return $this->startedAt; }
     public function setStartedAt(?\DateTimeImmutable $startedAt): static { $this->startedAt = $startedAt; return $this; }
+    public function getSubmittedAt(): ?\DateTimeImmutable { return $this->submittedAt; }
+    public function setSubmittedAt(?\DateTimeImmutable $submittedAt): static { $this->submittedAt = $submittedAt; return $this; }
     public function getCompletedAt(): ?\DateTimeImmutable { return $this->completedAt; }
     public function setCompletedAt(?\DateTimeImmutable $completedAt): static { $this->completedAt = $completedAt; return $this; }
     public function getFailedAt(): ?\DateTimeImmutable { return $this->failedAt; }
@@ -153,6 +193,10 @@ class TranscriptionJob
     public function getTranscriptJson(): ?array { return $this->transcriptJson; }
     /** @param array<string, mixed>|null $transcriptJson */
     public function setTranscriptJson(?array $transcriptJson): static { $this->transcriptJson = $transcriptJson; return $this; }
+    /** @return array<string, mixed>|null */
+    public function getRawProviderResponse(): ?array { return $this->rawProviderResponse; }
+    /** @param array<string, mixed>|null $rawProviderResponse */
+    public function setRawProviderResponse(?array $rawProviderResponse): static { $this->rawProviderResponse = $rawProviderResponse; return $this; }
     public function getTranscriptS3Bucket(): ?string { return $this->transcriptS3Bucket; }
     public function setTranscriptS3Bucket(?string $transcriptS3Bucket): static { $this->transcriptS3Bucket = $transcriptS3Bucket; return $this; }
     public function getTranscriptS3Key(): ?string { return $this->transcriptS3Key; }

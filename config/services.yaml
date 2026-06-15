@@ -13,6 +13,7 @@ parameters:
     telnyx_connection_id: ''
     telnyx_recording_enabled: true
     telnyx_recording_format: 'wav'
+    telnyx_recording_channels: 'dual'
     click_to_call_agent_number: ''
     click_to_call_recording_enabled: true
     aws_recordings_bucket: 'firstfire-pbx-recordings-nonprod-839079494005-ca-central-1-an'
@@ -21,20 +22,31 @@ parameters:
     aws_presigned_url_ttl_seconds: 900
     openai_api_key: ''
     openai_transcription_model: 'gpt-4o-mini-transcribe'
-    openai_transcription_enabled: true
+    openai_transcription_enabled: false
     messenger_transport_dsn: 'redis://127.0.0.1:6379/transcription'
     local_worker_enabled: false
     local_worker_shared_secret: ''
     ollama_base_url: 'http://100.115.177.42:11434'
     ollama_summary_model: 'llama3.1'
-    stt_provider: 'local_worker'
+    stt_provider: 'telnyx'
     transcription_job_lock_seconds: 900
+    telnyx_transcription_enabled: true
+    telnyx_transcription_model: ''
+    telnyx_transcription_language: 'en'
+    telnyx_transcription_track: 'both'
+    telnyx_transcription_engine: 'telnyx'
+    telnyx_transcription_profanity_filter: false
+    telnyx_transcription_speaker_diarization: false
 
 services:
     # default configuration for services in *this* file
     _defaults:
         autowire: true      # Automatically injects dependencies in your services.
         autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    _instanceof:
+        App\Transcription\SttProviderInterface:
+            tags: ['app.stt_provider']
 
     # makes classes in src/ available to be used as services
     # this creates a service per class whose id is the fully-qualified class name
@@ -59,13 +71,43 @@ services:
         arguments:
             $recordingsBucket: '%env(default:aws_recordings_bucket:AWS_RECORDINGS_BUCKET)%'
             $recordingsEnvironment: '%env(default:aws_recordings_env:AWS_RECORDINGS_ENV)%'
-            $transcriptionEnabled: '%env(bool:default:openai_transcription_enabled:OPENAI_TRANSCRIPTION_ENABLED)%'
 
     App\Service\TranscriptionJobService:
         arguments:
+            $providers: '@App\Transcription\SttProviderRegistry'
+            $telnyxConfiguration: '@App\Transcription\Provider\TelnyxTranscriptionConfiguration'
             $localWorkerEnabled: '%env(bool:default:local_worker_enabled:LOCAL_WORKER_ENABLED)%'
-            $sttProvider: '%env(default:stt_provider:STT_PROVIDER)%'
             $lockSeconds: '%env(int:default:transcription_job_lock_seconds:TRANSCRIPTION_JOB_LOCK_SECONDS)%'
+
+    App\Transcription\SttProviderRegistry:
+        arguments:
+            $providers: !tagged_iterator app.stt_provider
+            $defaultProviderName: '%env(default:stt_provider:STT_PROVIDER)%'
+
+    App\Transcription\Provider\TelnyxTranscriptionConfiguration:
+        arguments:
+            $enabled: '%env(bool:default:telnyx_transcription_enabled:TELNYX_TRANSCRIPTION_ENABLED)%'
+            $model: '%env(default:telnyx_transcription_model:TELNYX_TRANSCRIPTION_MODEL)%'
+            $language: '%env(default:telnyx_transcription_language:TELNYX_TRANSCRIPTION_LANGUAGE)%'
+            $track: '%env(default:telnyx_transcription_track:TELNYX_TRANSCRIPTION_TRACK)%'
+            $engine: '%env(default:telnyx_transcription_engine:TELNYX_TRANSCRIPTION_ENGINE)%'
+            $profanityFilter: '%env(bool:default:telnyx_transcription_profanity_filter:TELNYX_TRANSCRIPTION_PROFANITY_FILTER)%'
+            $speakerDiarization: '%env(bool:default:telnyx_transcription_speaker_diarization:TELNYX_TRANSCRIPTION_SPEAKER_DIARIZATION)%'
+
+    App\Service\CapturePolicyResolver:
+        arguments:
+            $recordingEnabled: '%env(bool:default:telnyx_recording_enabled:TELNYX_RECORDING_ENABLED)%'
+            $transcriptionEnabled: '%env(bool:default:telnyx_transcription_enabled:TELNYX_TRANSCRIPTION_ENABLED)%'
+
+    App\Service\TelnyxCaptureService:
+        arguments:
+            $recordingFormat: '%env(default:telnyx_recording_format:TELNYX_RECORDING_FORMAT)%'
+            $recordingChannels: '%env(default:telnyx_recording_channels:TELNYX_RECORDING_CHANNELS)%'
+
+    App\Service\DevTelnyxTranscriptionTestService:
+        arguments:
+            $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
+            $connectionId: '%env(default:telnyx_connection_id:TELNYX_CONNECTION_ID)%'
 
     App\Service\WorkerApiAuthService:
         arguments:
@@ -75,6 +117,17 @@ services:
         arguments:
             $baseUrl: '%env(default:ollama_base_url:OLLAMA_BASE_URL)%'
             $model: '%env(default:ollama_summary_model:OLLAMA_SUMMARY_MODEL)%'
+
+    App\Command\ListSttProvidersCommand:
+        arguments:
+            $localWorkerEnabled: '%env(bool:default:local_worker_enabled:LOCAL_WORKER_ENABLED)%'
+            $openAiTranscriptionEnabled: '%env(bool:default:openai_transcription_enabled:OPENAI_TRANSCRIPTION_ENABLED)%'
+            $telnyxModel: '%env(default:telnyx_transcription_model:TELNYX_TRANSCRIPTION_MODEL)%'
+
+    App\Command\CapturePolicyDebugCommand:
+        arguments:
+            $recordingFormat: '%env(default:telnyx_recording_format:TELNYX_RECORDING_FORMAT)%'
+            $recordingChannels: '%env(default:telnyx_recording_channels:TELNYX_RECORDING_CHANNELS)%'
 
     App\Service\OpenAiTranscriptionService:
         arguments:
@@ -90,17 +143,11 @@ services:
         arguments:
             $model: '%env(default:openai_transcription_model:OPENAI_TRANSCRIPTION_MODEL)%'
 
-    App\Service\TelnyxRecordingStartService:
-        arguments:
-            $recordingEnabled: '%env(bool:default:telnyx_recording_enabled:TELNYX_RECORDING_ENABLED)%'
-            $recordingFormat: '%env(default:telnyx_recording_format:TELNYX_RECORDING_FORMAT)%'
-
     App\Service\ClickToCallService:
         arguments:
             $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
             $connectionId: '%env(default:telnyx_connection_id:TELNYX_CONNECTION_ID)%'
             $defaultAgentNumber: '%env(default:click_to_call_agent_number:CLICK_TO_CALL_AGENT_NUMBER)%'
-            $recordingEnabled: '%env(bool:default:click_to_call_recording_enabled:CLICK_TO_CALL_RECORDING_ENABLED)%'
 
     App\Controller\TelnyxWebhookController:
         arguments:

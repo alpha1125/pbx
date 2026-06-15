@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use App\Entity\CallSummary;
+use App\Entity\CallTranscript;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -24,5 +25,10 @@ final class CallSummaryRepository extends ServiceEntityRepository
     public function findPending(int $limit = 10): array
     {
         return $this->findBy(['status' => 'pending'], ['createdAt' => 'ASC'], $limit);
+    }
+
+    public function findOneByTranscript(CallTranscript $transcript): ?CallSummary
+    {
+        return $this->findOneBy(['callTranscript' => $transcript], ['createdAt' => 'DESC']);
     }
 }

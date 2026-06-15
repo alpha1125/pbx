@@ -6,6 +6,7 @@ namespace App\Repository;
 
 use App\Entity\CallRecording;
 use App\Entity\CallTranscript;
+use App\Entity\TranscriptionJob;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -40,6 +41,11 @@ class CallTranscriptRepository extends ServiceEntityRepository
             'provider' => $provider,
             'model' => $model,
         ], ['createdAt' => 'DESC']);
+    }
+
+    public function findOneByTranscriptionJob(TranscriptionJob $job): ?CallTranscript
+    {
+        return $this->findOneBy(['transcriptionJob' => $job], ['createdAt' => 'DESC']);
     }
 
     /** @return list<CallTranscript> */

@@ -29,7 +29,7 @@ final class RecentTranscriptionsCommand extends Command
         foreach ($this->repository->findRecent() as $transcript) {
             $rows[] = [
                 $transcript->getId(),
-                $transcript->getCallRecording()->getId(),
+                $transcript->getCallRecording()?->getId() ?? '',
                 $transcript->getCallSession()?->getId() ?? '',
                 $transcript->getProvider(),
                 $transcript->getModel(),

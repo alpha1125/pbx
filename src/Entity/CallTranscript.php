@@ -22,12 +22,16 @@ class CallTranscript
     private ?int $id = null;
 
     #[ORM\ManyToOne]
-    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
-    private CallRecording $callRecording;
+    #[ORM\JoinColumn(nullable: true, onDelete: 'CASCADE')]
+    private ?CallRecording $callRecording = null;
 
     #[ORM\ManyToOne]
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?CallSession $callSession = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?CallLeg $callLeg = null;
 
     #[ORM\ManyToOne]
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
@@ -77,10 +81,11 @@ class CallTranscript
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $updatedAt;
 
-    public function __construct(CallRecording $callRecording, ?string $model = null, string $status = 'available')
+    public function __construct(?CallRecording $callRecording = null, ?string $model = null, string $status = 'available')
     {
         $this->callRecording = $callRecording;
-        $this->callSession = $callRecording->getCallSession();
+        $this->callSession = $callRecording?->getCallSession();
+        $this->callLeg = $callRecording?->getCallLeg();
         $this->model = $model;
         $this->status = $status;
         $this->createdAt = new \DateTimeImmutable();
@@ -88,9 +93,12 @@ class CallTranscript
     }
 
     public function getId(): ?int { return $this->id; }
-    public function getCallRecording(): CallRecording { return $this->callRecording; }
+    public function getCallRecording(): ?CallRecording { return $this->callRecording; }
+    public function setCallRecording(?CallRecording $callRecording): static { $this->callRecording = $callRecording; return $this; }
     public function getCallSession(): ?CallSession { return $this->callSession; }
     public function setCallSession(?CallSession $callSession): static { $this->callSession = $callSession; return $this; }
+    public function getCallLeg(): ?CallLeg { return $this->callLeg; }
+    public function setCallLeg(?CallLeg $callLeg): static { $this->callLeg = $callLeg; return $this; }
     public function getTranscriptionJob(): ?TranscriptionJob { return $this->transcriptionJob; }
     public function setTranscriptionJob(?TranscriptionJob $transcriptionJob): static { $this->transcriptionJob = $transcriptionJob; return $this; }
     public function getProvider(): string { return $this->provider; }

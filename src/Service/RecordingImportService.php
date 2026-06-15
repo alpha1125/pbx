@@ -20,7 +20,6 @@ class RecordingImportService
         private readonly TranscriptionJobService $transcriptionJobs,
         private readonly string $recordingsBucket,
         private readonly string $recordingsEnvironment,
-        private readonly bool $transcriptionEnabled = false,
     ) {
     }
 
@@ -88,18 +87,6 @@ class RecordingImportService
                 ->touch();
             $this->transcriptionJobs->createPendingJobForRecording($recording);
             $this->entityManager->flush();
-
-            if ($this->transcriptionEnabled && !$this->transcriptionJobs->shouldUseLocalWorker()) {
-                try {
-                    // TODO: Remove this legacy dispatch path once OpenAI/Messenger transcription is fully retired.
-                    throw new \RuntimeException('Legacy Messenger transcription path is disabled in this phase.');
-                } catch (\Throwable $exception) {
-                    $this->logger->error('Recording import succeeded but transcription dispatch failed.', [
-                        'recording_id' => $recording->getId(),
-                        'exception' => $exception,
-                    ]);
-                }
-            }
         } catch (\Throwable $exception) {
             $recording
                 ->setStatus('failed')

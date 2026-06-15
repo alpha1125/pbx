@@ -11,8 +11,11 @@ use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
 use App\Service\ClientStateService;
 use App\Service\ClickToCallService;
+use App\Service\DevTelnyxTranscriptionTestService;
+use App\Service\TelnyxCaptureService;
 use App\Service\TelnyxRecordingProjectionService;
-use App\Service\TelnyxRecordingStartService;
+use App\Transcription\SttProviderRegistry;
+use App\Transcription\WebhookDrivenSttProviderInterface;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -42,7 +45,9 @@ final class TelnyxWebhookController extends AbstractController
         EntityManagerInterface $entityManager,
         TelnyxCallProjectionService $callProjection,
         TelnyxRecordingProjectionService $recordingProjection,
-        TelnyxRecordingStartService $recordingStart,
+        TelnyxCaptureService $capture,
+        DevTelnyxTranscriptionTestService $transcriptionTest,
+        SttProviderRegistry $providers,
     ): JsonResponse {
         try {
             $payload = json_decode($request->getContent(), true, flags: JSON_THROW_ON_ERROR);
@@ -112,9 +117,25 @@ final class TelnyxWebhookController extends AbstractController
             ]);
         }
 
+        if ($this->isTranscriptionEvent($eventType)) {
+            try {
+                $provider = $providers->get('telnyx');
+                if ($provider instanceof WebhookDrivenSttProviderInterface) {
+                    $provider->handleWebhook($payload, $event);
+                }
+            } catch (\Throwable $exception) {
+                $this->logger->error('Telnyx transcription provider processing failed after webhook persistence.', [
+                    'provider_event_id' => $providerEventId,
+                    'event_type' => $eventType,
+                    'call_control_id' => $callControlId,
+                    'exception' => $exception,
+                ]);
+            }
+        }
+
         if ('call.bridged' === $eventType && is_array($eventPayload)) {
             try {
-                $recordingStart->startForBridgedInboundLeg($eventPayload);
+                $capture->startForBridgedInboundLeg($eventPayload);
             } catch (\Throwable $exception) {
                 $this->logger->error('Telnyx recording start failed after webhook persistence.', [
                     'provider_event_id' => $providerEventId,
@@ -126,7 +147,7 @@ final class TelnyxWebhookController extends AbstractController
 
         if ('call.answered' === $eventType && is_array($eventPayload)) {
             try {
-                $recordingStart->startWhenBothLegsAnswered($eventPayload);
+                $capture->startWhenBothLegsAnswered($eventPayload);
             } catch (\Throwable $exception) {
                 $this->logger->error('Telnyx fallback recording start failed after webhook persistence.', [
                     'provider_event_id' => $providerEventId,
@@ -136,7 +157,22 @@ final class TelnyxWebhookController extends AbstractController
             }
         }
 
+        if ('call.speak.ended' === $eventType && is_array($eventPayload)) {
+            try {
+                $capture->startForInboundIntroCompleted($eventPayload);
+            } catch (\Throwable $exception) {
+                $this->logger->error('Telnyx inbound capture start failed after intro playback.', [
+                    'provider_event_id' => $providerEventId,
+                    'call_control_id' => $callControlId,
+                    'exception' => $exception,
+                ]);
+            }
+        }
+
         try {
+            if ($transcriptionTest->handleWebhook($eventType, $eventPayload ?? [])) {
+                return $this->json(['ok' => true]);
+            }
             $this->handleCallControlEvent($eventType, $eventPayload, $providerEventId);
         } catch (\Throwable $exception) {
             $this->logger->error('Telnyx Call Control action failed after webhook persistence.', [
@@ -148,6 +184,18 @@ final class TelnyxWebhookController extends AbstractController
         }
 
         return $this->json(['ok' => true]);
+    }
+
+    private function isTranscriptionEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'call.recording.saved',
+            'call.recording.error',
+            'call.recording.transcription.saved',
+            'call.transcription',
+            'call.transcription.saved',
+            'call.transcription.error',
+        ], true);
     }
 
     private function handleCallControlEvent(

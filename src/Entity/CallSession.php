@@ -14,6 +14,7 @@ class CallSession
 {
     public const FLOW_TYPE_INBOUND_FORWARD = 'inbound_forward';
     public const FLOW_TYPE_CLICK_TO_CALL = 'click_to_call';
+    public const FLOW_TYPE_TRANSCRIPTION_TEST = 'transcription_test';
 
     #[ORM\Id]
     #[ORM\GeneratedValue]
