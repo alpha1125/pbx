@@ -19,6 +19,32 @@
         {% endif %}
     </head>
     <body>
-        {% block body %}{% endblock %}
+        <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom mb-4">
+            <div class="container">
+                <a class="navbar-brand fw-semibold" href="{{ path('crm_home') }}">Trusted Procurement CRM</a>
+                <div class="navbar-nav me-auto">
+                    {% if app.user %}
+                        <a class="nav-link" href="{{ path('crm_property_index') }}">Properties</a>
+                        <a class="nav-link" href="{{ path('crm_rfq_invitation_index') }}">RFQ Invitations</a>
+                    {% endif %}
+                </div>
+                <div class="navbar-nav ms-auto">
+                    {% if app.user %}
+                        <span class="navbar-text me-3">{{ app.user.displayName }}</span>
+                        <a class="nav-link" href="{{ path('app_logout') }}">Logout</a>
+                    {% else %}
+                        <a class="nav-link" href="{{ path('app_login') }}">Login</a>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+        <main class="container pb-5">
+            {% for type, messages in app.flashes %}
+                {% for message in messages %}
+                    <div class="alert {{ type == 'success' ? 'alert-success' : 'alert-danger' }}">{{ message }}</div>
+                {% endfor %}
+            {% endfor %}
+            {% block body %}{% endblock %}
+        </main>
     </body>
 </html>

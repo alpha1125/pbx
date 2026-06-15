@@ -18,7 +18,7 @@ final class TranscriptDetailsController extends AbstractController
     ) {
     }
 
-    #[Route('/transcripts/{id<\d+>}', methods: ['GET'])]
+    #[Route('/transcripts/{id<\d+>}', name: 'transcript_details', methods: ['GET'])]
     public function __invoke(
         int $id,
         CallTranscriptRepository $repository,
@@ -63,7 +63,7 @@ final class TranscriptDetailsController extends AbstractController
         ]);
     }
 
-    #[Route('/transcripts/{id<\d+>}/messages', methods: ['GET'])]
+    #[Route('/transcripts/{id<\d+>}/messages', name: 'transcript_messages', methods: ['GET'])]
     public function messages(
         int $id,
         CallTranscriptRepository $repository,

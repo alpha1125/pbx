@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use App\Entity\CallRecording;
+use App\Entity\CallSession;
 use App\Entity\CallTranscript;
 use App\Entity\TranscriptionJob;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
@@ -80,5 +81,24 @@ class CallTranscriptRepository extends ServiceEntityRepository
             ->setParameter('statuses', ['processing', 'available'])
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /**
+     * @param list<CallSession> $sessions
+     *
+     * @return list<CallTranscript>
+     */
+    public function findBySessions(array $sessions): array
+    {
+        if ([] === $sessions) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('transcript')
+            ->andWhere('transcript.callSession IN (:sessions)')
+            ->setParameter('sessions', $sessions)
+            ->orderBy('transcript.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
     }
 }

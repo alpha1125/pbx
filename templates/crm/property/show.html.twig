@@ -1,0 +1,166 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ property.displayAddress }}{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_property_index') }}">Back to Properties</a>
+            <h1 class="h2 mt-2 mb-1">{{ property.displayAddress }}</h1>
+            <p class="text-body-secondary mb-0">{{ property.propertyType ?: 'Property' }}</p>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Contacts</h2>
+                    <div class="list-group list-group-flush">
+                        {% for propertyContact in propertyContacts %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ propertyContact.contact.displayName }}</div>
+                                        <div class="small text-body-secondary">{{ propertyContact.relationshipType|replace({'_':' '})|title }}</div>
+                                        <div class="small">{{ propertyContact.contact.primaryPhone ?: 'No phone' }}</div>
+                                        <div class="small">{{ propertyContact.contact.primaryEmail ?: 'No email' }}</div>
+                                    </div>
+                                    <div class="text-end">
+                                        {% if propertyContact.isPrimary %}
+                                            <span class="badge text-bg-primary">Primary</span>
+                                        {% endif %}
+                                        {% if propertyContact.contact.primaryPhone %}
+                                            <form method="post" action="{{ path('crm_property_contact_click_to_call', {propertyId: property.id, contactId: propertyContact.contact.id}) }}" class="mt-2">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_click_to_call_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
+                                                <button class="btn btn-sm btn-outline-primary" type="submit">Click to Call</button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No contacts linked.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Equipment</h2>
+                    <div class="list-group list-group-flush">
+                        {% for unit in equipment %}
+                            <div class="list-group-item px-0">
+                                <div class="fw-semibold">{{ unit.equipmentType|replace({'_':' '})|title }}</div>
+                                <div class="small text-body-secondary">{{ unit.brand ?: 'Unknown brand' }} {{ unit.modelNumber ?: '' }}</div>
+                                <div class="small">Status: {{ unit.status|replace({'_':' '})|title }}</div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No equipment recorded.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Estimates</h2>
+                    <div class="list-group list-group-flush">
+                        {% for estimate in estimates %}
+                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_estimate_show', {id: estimate.id}) }}">
+                                <div class="fw-semibold">{{ estimate.title ?: 'Estimate #' ~ estimate.id }}</div>
+                                <div class="small text-body-secondary">{{ estimate.status|replace({'_':' '})|title }}</div>
+                            </a>
+                        {% else %}
+                            <div class="text-body-secondary">No estimates yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Quotes</h2>
+                    <div class="list-group list-group-flush">
+                        {% for quote in quotes %}
+                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_quote_show', {id: quote.id}) }}">
+                                <div class="fw-semibold">{{ quote.quoteNumber }}</div>
+                                <div class="small text-body-secondary">{{ quote.status|replace({'_':' '})|title }}</div>
+                            </a>
+                        {% else %}
+                            <div class="text-body-secondary">No quotes yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Invoices</h2>
+                    <div class="list-group list-group-flush">
+                        {% for invoice in invoices %}
+                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_invoice_show', {id: invoice.id}) }}">
+                                <div class="fw-semibold">{{ invoice.invoiceNumber }}</div>
+                                <div class="small text-body-secondary">{{ invoice.status|replace({'_':' '})|title }}</div>
+                            </a>
+                        {% else %}
+                            <div class="text-body-secondary">No invoices yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Calls and Transcripts</h2>
+                    <div class="list-group list-group-flush">
+                        {% for call in calls %}
+                            <div class="list-group-item px-0">
+                                <div class="fw-semibold">Call Session #{{ call.id }}</div>
+                                <div class="small text-body-secondary">{{ call.flowType ?: 'call' }} • {{ call.status }}</div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No linked calls yet.</div>
+                        {% endfor %}
+
+                        {% for transcript in transcripts %}
+                            <a class="list-group-item list-group-item-action px-0" href="{{ path('transcript_messages', {id: transcript.id}) }}">
+                                <div class="fw-semibold">Transcript #{{ transcript.id }}</div>
+                                <div class="small text-body-secondary">{{ transcript.status }} • {{ transcript.createdAt|date('Y-m-d H:i') }}</div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Audit Log</h2>
+                    <div class="list-group list-group-flush">
+                        {% for log in auditLogs %}
+                            <div class="list-group-item px-0">
+                                <div class="fw-semibold">{{ log.action }}</div>
+                                <div class="small text-body-secondary">{{ log.createdAt|date('Y-m-d H:i:s') }}</div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No audit entries yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

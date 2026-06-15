@@ -1,0 +1,68 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}RFQ Invitations{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h2 mb-1">RFQ Invitations</h1>
+            <p class="text-body-secondary mb-0">{{ tenant.name }}</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ path('crm_property_index') }}">View Properties</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>RFQ</th>
+                        <th>Customer</th>
+                        <th>Status</th>
+                        <th>Updated</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for invitation in invitations %}
+                        {% set rfq = invitation.rfq %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ rfq.addressLine1 }}, {{ rfq.city }}</div>
+                                <div class="small text-body-secondary">{{ rfq.projectType ?: 'HVAC RFQ' }}</div>
+                            </td>
+                            <td>
+                                <div>{{ rfq.customerName ?: 'Unknown customer' }}</div>
+                                <div class="small text-body-secondary">{{ rfq.customerPhone ?: rfq.customerEmail ?: 'No contact info' }}</div>
+                            </td>
+                            <td>{{ invitation.status|replace({'_':' '})|title }}</td>
+                            <td>{{ invitation.updatedAt|date('Y-m-d H:i') }}</td>
+                            <td class="text-end">
+                                {% if invitation.status in ['sent', 'viewed'] %}
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <form method="post" action="{{ path('crm_rfq_invitation_accept', {id: invitation.id}) }}">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('accept_rfq_invitation_' ~ invitation.id) }}">
+                                            <button class="btn btn-sm btn-primary" type="submit">Accept / Create Estimate</button>
+                                        </form>
+                                        <form method="post" action="{{ path('crm_rfq_invitation_decline', {id: invitation.id}) }}">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('decline_rfq_invitation_' ~ invitation.id) }}">
+                                            <button class="btn btn-sm btn-outline-secondary" type="submit">Decline</button>
+                                        </form>
+                                    </div>
+                                {% elseif invitation.createdEstimate %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_estimate_show', {id: invitation.createdEstimate.id}) }}">Open Estimate</a>
+                                {% else %}
+                                    <span class="text-body-secondary">No actions</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-body-secondary py-4">No RFQ invitations yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

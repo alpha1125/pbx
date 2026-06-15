@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use App\Entity\CallSession;
+use App\Entity\Property;
+use App\Entity\Tenant;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -19,6 +21,19 @@ class CallSessionRepository extends ServiceEntityRepository
     public function findOneByProviderSessionId(string $providerSessionId): ?CallSession
     {
         return $this->findOneBy(['providerSessionId' => $providerSessionId]);
+    }
+
+    /** @return list<CallSession> */
+    public function findByTenantAndProperty(Tenant $tenant, Property $property): array
+    {
+        return $this->createQueryBuilder('session')
+            ->andWhere('session.tenant = :tenant')
+            ->andWhere('session.property = :property')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('property', $property)
+            ->orderBy('session.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
     }
 
     /** @return list<CallSession> */

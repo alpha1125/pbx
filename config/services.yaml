@@ -28,6 +28,8 @@ parameters:
     local_worker_shared_secret: ''
     ollama_base_url: 'http://100.115.177.42:11434'
     ollama_summary_model: 'llama3.1'
+    crm_default_tenant_id: null
+    crm_default_tenant_name: 'FirstFire HVAC Demo'
     stt_provider: 'telnyx'
     transcription_job_lock_seconds: 900
     telnyx_transcription_enabled: true
@@ -52,6 +54,8 @@ services:
     # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
+
+    App\Service\CurrentTenantProviderInterface: '@App\Service\CurrentTenantProvider'
 
     App\Service\TelnyxCallControlService:
         arguments:
@@ -148,6 +152,11 @@ services:
             $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
             $connectionId: '%env(default:telnyx_connection_id:TELNYX_CONNECTION_ID)%'
             $defaultAgentNumber: '%env(default:click_to_call_agent_number:CLICK_TO_CALL_AGENT_NUMBER)%'
+
+    App\Service\CurrentTenantProvider:
+        arguments:
+            $defaultTenantId: '%env(default:crm_default_tenant_id:CRM_DEFAULT_TENANT_ID)%'
+            $defaultTenantName: '%env(default:crm_default_tenant_name:CRM_DEFAULT_TENANT_NAME)%'
 
     App\Controller\TelnyxWebhookController:
         arguments:

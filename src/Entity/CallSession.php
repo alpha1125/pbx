@@ -61,6 +61,34 @@ class CallSession
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?CallSession $parentCallSession = null;
 
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Tenant $tenant = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Property $property = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Contact $contact = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?RfqInvitation $rfqInvitation = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Estimate $estimate = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Quote $quote = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Invoice $invoice = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
@@ -224,6 +252,90 @@ class CallSession
     public function setParentCallSession(?CallSession $parentCallSession): static
     {
         $this->parentCallSession = $parentCallSession;
+
+        return $this;
+    }
+
+    public function getTenant(): ?Tenant
+    {
+        return $this->tenant;
+    }
+
+    public function setTenant(?Tenant $tenant): static
+    {
+        $this->tenant = $tenant;
+
+        return $this;
+    }
+
+    public function getProperty(): ?Property
+    {
+        return $this->property;
+    }
+
+    public function setProperty(?Property $property): static
+    {
+        $this->property = $property;
+
+        return $this;
+    }
+
+    public function getContact(): ?Contact
+    {
+        return $this->contact;
+    }
+
+    public function setContact(?Contact $contact): static
+    {
+        $this->contact = $contact;
+
+        return $this;
+    }
+
+    public function getRfqInvitation(): ?RfqInvitation
+    {
+        return $this->rfqInvitation;
+    }
+
+    public function setRfqInvitation(?RfqInvitation $rfqInvitation): static
+    {
+        $this->rfqInvitation = $rfqInvitation;
+
+        return $this;
+    }
+
+    public function getEstimate(): ?Estimate
+    {
+        return $this->estimate;
+    }
+
+    public function setEstimate(?Estimate $estimate): static
+    {
+        $this->estimate = $estimate;
+
+        return $this;
+    }
+
+    public function getQuote(): ?Quote
+    {
+        return $this->quote;
+    }
+
+    public function setQuote(?Quote $quote): static
+    {
+        $this->quote = $quote;
+
+        return $this;
+    }
+
+    public function getInvoice(): ?Invoice
+    {
+        return $this->invoice;
+    }
+
+    public function setInvoice(?Invoice $invoice): static
+    {
+        $this->invoice = $invoice;
 
         return $this;
     }
