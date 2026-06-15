@@ -23,6 +23,7 @@ class DevTelnyxTranscriptionTestService
         private readonly TelnyxCaptureService $capture,
         private readonly CapturePolicyResolver $policyResolver,
         private readonly ClientStateService $clientState,
+        private readonly TelnyxTranscriptionService $transcription,
         private readonly string $fromNumber,
         private readonly string $connectionId,
     ) {
@@ -136,7 +137,7 @@ class DevTelnyxTranscriptionTestService
             'targetName' => $state['targetName'] ?? null,
             'stage' => 'transcription_test_intro',
         ]);
-        $disclosure = $this->disclosureMessage($policy);
+        $disclosure = $this->transcription->disclosureMessage($policy);
 
         $action = (new CallAction('speak_transcription_test_intro'))
             ->setCallSession($session)
@@ -227,18 +228,6 @@ class DevTelnyxTranscriptionTestService
 
         return $session?->getParentCallSession() ?? $session;
     }
-
-    private function disclosureMessage(CapturePolicy $policy): string
-    {
-        return match (true) {
-            $policy->recordAudio && $policy->transcribeAudio => 'Thank you for calling FirstFire, this call will be recorded for transcription and quality purposes.',
-            !$policy->recordAudio && $policy->transcribeAudio => 'Thank you for calling FirstFire, this call will be transcribed for quality purposes.',
-            $policy->recordAudio && !$policy->transcribeAudio => 'Thank you for calling FirstFire, this call will be recorded for quality purposes.',
-            default => 'Thank you for calling FirstFire.',
-        };
-    }
-
-
     /**
      * @param array<string, mixed> $payload
      */

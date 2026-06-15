@@ -10,10 +10,12 @@ use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
 use App\Service\ClientStateService;
+use App\Service\CapturePolicyResolver;
 use App\Service\ClickToCallService;
 use App\Service\DevTelnyxTranscriptionTestService;
 use App\Service\TelnyxCaptureService;
 use App\Service\TelnyxRecordingProjectionService;
+use App\Service\TelnyxTranscriptionService;
 use App\Transcription\SttProviderRegistry;
 use App\Transcription\WebhookDrivenSttProviderInterface;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -32,6 +34,8 @@ final class TelnyxWebhookController extends AbstractController
         private readonly TelnyxCallStateService $callState,
         private readonly ClickToCallService $clickToCall,
         private readonly ClientStateService $clientState,
+        private readonly CapturePolicyResolver $policyResolver,
+        private readonly TelnyxTranscriptionService $transcription,
         private readonly LoggerInterface $logger,
         private readonly string $forwardToNumber,
         private readonly string $fromNumber,
@@ -233,9 +237,10 @@ final class TelnyxWebhookController extends AbstractController
             && null !== $callControlId
             && $this->isInboundEvent($eventPayload, $callControlId)
         ) {
+            $policy = $this->policyResolver->defaultForContext(\App\Entity\CallSession::FLOW_TYPE_INBOUND_FORWARD);
             $this->callControl->speak(
                 $callControlId,
-                'Thank you for calling FirstFire. Please hold while I connect you.',
+                $this->transcription->forwardingDisclosureMessage($policy),
                 null,
                 sprintf('inbound-forward:%s:speak-intro', $this->requiredStringValue($eventPayload, 'call_session_id')),
             );

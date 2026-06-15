@@ -11,10 +11,12 @@ use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
 use App\Service\ClientStateService;
+use App\Service\CapturePolicyResolver;
 use App\Service\ClickToCallService;
 use App\Service\DevTelnyxTranscriptionTestService;
 use App\Service\TelnyxCaptureService;
 use App\Service\TelnyxRecordingProjectionService;
+use App\Service\TelnyxTranscriptionService;
 use App\Transcription\SttProviderInterface;
 use App\Transcription\SttProviderRegistry;
 use App\Transcription\WebhookDrivenSttProviderInterface;
@@ -50,6 +52,8 @@ final class TelnyxWebhookControllerTest extends TestCase
             new TelnyxCallStateService(new ArrayAdapter()),
             $this->clickToCall(false),
             new ClientStateService(),
+            new CapturePolicyResolver(true, true),
+            new TelnyxTranscriptionService(),
             $logger,
             '+14168880123',
             '+12892079888',
@@ -88,6 +92,10 @@ final class TelnyxWebhookControllerTest extends TestCase
         self::assertCount(5, $requests);
         self::assertStringEndsWith('/inbound-control-id/actions/answer', $requests[0]['url']);
         self::assertStringEndsWith('/inbound-control-id/actions/speak', $requests[1]['url']);
+        self::assertSame(
+            'Thank you for calling FirstFire, this call will be recorded for transcription and quality purposes. Please hold while I connect you.',
+            $requests[1]['body']['payload'],
+        );
         self::assertStringEndsWith('/calls', $requests[2]['url']);
         self::assertSame('+14168880123', $requests[2]['body']['to']);
         self::assertStringEndsWith('/inbound-control-id/actions/bridge', $requests[3]['url']);
@@ -310,6 +318,8 @@ final class TelnyxWebhookControllerTest extends TestCase
             new TelnyxCallStateService(new ArrayAdapter()),
             $this->clickToCall(false),
             new ClientStateService(),
+            new CapturePolicyResolver(true, true),
+            new TelnyxTranscriptionService(),
             $logger,
             '+14168880123',
             '+12892079888',
