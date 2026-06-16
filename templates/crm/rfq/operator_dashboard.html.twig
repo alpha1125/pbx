@@ -1,0 +1,185 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}RFQ Operations{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-1">RFQ Operations</h1>
+            <p class="text-body-secondary mb-0">Platform visibility for RFQs, invitations, and lifecycle status.</p>
+        </div>
+        <a class="btn btn-outline-primary" href="{{ path('crm_rfq_index') }}">Back to RFQs</a>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">RFQ Dashboard</h2>
+                <form method="get" class="d-flex gap-2 align-items-end">
+                    <div>
+                        <label class="form-label small mb-1" for="rfqQ">Search</label>
+                        <input class="form-control form-control-sm" id="rfqQ" name="rfqQ" value="{{ rfqSearch }}" placeholder="Reference, address, customer">
+                    </div>
+                    <div>
+                        <label class="form-label small mb-1" for="rfqStatus">Status</label>
+                        <select class="form-select form-select-sm" id="rfqStatus" name="rfqStatus">
+                            <option value="">All statuses</option>
+                            {% for status in rfqStatuses %}
+                                <option value="{{ status }}" {% if rfqStatus == status %}selected{% endif %}>{{ status|replace({'_':' '})|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <input type="hidden" name="invitationQ" value="{{ invitationSearch }}">
+                    <input type="hidden" name="invitationStatus" value="{{ invitationStatus }}">
+                    <input type="hidden" name="invitationPage" value="{{ invitationPage }}">
+                    <button class="btn btn-sm btn-primary" type="submit">Filter</button>
+                </form>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>RFQ</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rfq in rfqs %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ rfq.addressLine1 }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.city }}, {{ rfq.province }} {{ rfq.postalCode }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.externalReference ?: 'No external reference' }}</div>
+                                </td>
+                                <td>
+                                    <div>{{ rfq.customerName ?: 'Unknown customer' }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.customerPhone ?: rfq.customerEmail ?: 'No contact info' }}</div>
+                                </td>
+                                <td>{{ rfq.status|replace({'_':' '})|title }}</td>
+                                <td>{{ rfq.createdAt|date('Y-m-d H:i') }}</td>
+                                <td class="text-end">
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_rfq_show', {id: rfq.id}) }}">View</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_rfq_operator_compare', {id: rfq.id}) }}">Compare</a>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-body-secondary py-4">No RFQs match the current filters.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if totalRfqs > rfqPageSize %}
+                {% set totalRfqPages = (totalRfqs / rfqPageSize)|round(0, 'ceil') %}
+                <nav class="mt-3" aria-label="RFQ pagination">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item {{ rfqPage <= 1 ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: rfqPage - 1, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: invitationPage, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">Previous</a>
+                        </li>
+                        {% for currentPage in 1..totalRfqPages %}
+                            <li class="page-item {{ currentPage == rfqPage ? 'active' : '' }}">
+                                <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: currentPage, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: invitationPage, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">{{ currentPage }}</a>
+                            </li>
+                        {% endfor %}
+                        <li class="page-item {{ rfqPage >= totalRfqPages ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: rfqPage + 1, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: invitationPage, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Invitation Status Dashboard</h2>
+                <form method="get" class="d-flex gap-2 align-items-end">
+                    <div>
+                        <label class="form-label small mb-1" for="invitationQ">Search</label>
+                        <input class="form-control form-control-sm" id="invitationQ" name="invitationQ" value="{{ invitationSearch }}" placeholder="Tenant, address, customer">
+                    </div>
+                    <div>
+                        <label class="form-label small mb-1" for="invitationStatus">Status</label>
+                        <select class="form-select form-select-sm" id="invitationStatus" name="invitationStatus">
+                            <option value="">All statuses</option>
+                            {% for status in invitationStatuses %}
+                                <option value="{{ status }}" {% if invitationStatus == status %}selected{% endif %}>{{ status|replace({'_':' '})|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <input type="hidden" name="rfqQ" value="{{ rfqSearch }}">
+                    <input type="hidden" name="rfqStatus" value="{{ rfqStatus }}">
+                    <input type="hidden" name="rfqPage" value="{{ rfqPage }}">
+                    <button class="btn btn-sm btn-primary" type="submit">Filter</button>
+                </form>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>RFQ</th>
+                            <th>Status</th>
+                            <th>Lifecycle</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invitation in invitations %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ invitation.tenant.name }}</div>
+                                    <div class="small text-body-secondary">{{ invitation.tenant.email ?: 'No tenant email' }}</div>
+                                </td>
+                                <td>
+                                    <div class="fw-semibold">{{ invitation.rfq.addressLine1 }}</div>
+                                    <div class="small text-body-secondary">{{ invitation.rfq.city }}, {{ invitation.rfq.province }} {{ invitation.rfq.postalCode }}</div>
+                                </td>
+                                <td>{{ invitation.status|replace({'_':' '})|title }}</td>
+                                <td class="small">
+                                    <div>Invited {{ invitation.invitedAt ? invitation.invitedAt|date('Y-m-d H:i') : 'n/a' }}</div>
+                                    <div>Expires {{ invitation.expiresAt ? invitation.expiresAt|date('Y-m-d H:i') : 'n/a' }}</div>
+                                    <div>Reminder {{ invitation.reminderAt ? invitation.reminderAt|date('Y-m-d H:i') : 'n/a' }}</div>
+                                </td>
+                                <td class="text-end">
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_rfq_operator_compare', {id: invitation.rfq.id}) }}">Compare</a>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-body-secondary py-4">No invitations match the current filters.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if totalInvitations > invitationPageSize %}
+                {% set totalInvitationPages = (totalInvitations / invitationPageSize)|round(0, 'ceil') %}
+                <nav class="mt-3" aria-label="Invitation pagination">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item {{ invitationPage <= 1 ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: rfqPage, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: invitationPage - 1, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">Previous</a>
+                        </li>
+                        {% for currentPage in 1..totalInvitationPages %}
+                            <li class="page-item {{ currentPage == invitationPage ? 'active' : '' }}">
+                                <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: rfqPage, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: currentPage, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">{{ currentPage }}</a>
+                            </li>
+                        {% endfor %}
+                        <li class="page-item {{ invitationPage >= totalInvitationPages ? 'disabled' : '' }}">
+                            <a class="page-link" href="{{ path('crm_rfq_operator_index', {rfqPage: rfqPage, rfqStatus: rfqStatus, rfqQ: rfqSearch, invitationPage: invitationPage + 1, invitationStatus: invitationStatus, invitationQ: invitationSearch}) }}">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

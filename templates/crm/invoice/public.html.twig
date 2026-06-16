@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ invoice.invoiceNumber }} | Invoice</title>
+    <style>
+        :root { color-scheme: light; }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f6f3ed; color: #1f2937; }
+        .page { max-width: 960px; margin: 0 auto; padding: 32px 20px 48px; }
+        .hero { background: linear-gradient(135deg, #1d3557, #457b9d); color: white; padding: 28px; border-radius: 20px; }
+        .hero h1 { margin: 0 0 8px; font-size: 2rem; }
+        .hero p { margin: 0; opacity: 0.9; }
+        .card { background: white; border-radius: 16px; padding: 24px; margin-top: 20px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .muted { color: #6b7280; }
+        .table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        .table th, .table td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+        .table th:last-child, .table td:last-child { text-align: right; }
+        .section-label { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; color: #6b7280; margin-top: 16px; }
+        .totals { display: grid; gap: 8px; max-width: 360px; margin-left: auto; margin-top: 20px; }
+        .totals div { display: flex; justify-content: space-between; }
+        .payments { margin-top: 20px; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #e2e8f0; color: #334155; font-size: 12px; }
+        @media print {
+            body { background: white; }
+            .page { padding: 0; max-width: none; }
+            .card { box-shadow: none; border-radius: 0; margin-top: 0; }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <section class="hero">
+        <h1>{{ invoice.invoiceNumber }}</h1>
+        <p>{{ invoice.property.displayAddress }}</p>
+        <p class="muted" style="color: rgba(255,255,255,.85);">Issued to {{ invoice.contact ? invoice.contact.displayName : 'customer' }} | {{ invoice.status|replace({'_':' '})|title }}</p>
+    </section>
+
+    <section class="card">
+        <div class="grid">
+            <div>
+                <div class="section-label">From</div>
+                <div class="fw-semibold">{{ invoice.tenant.name }}</div>
+                <div class="muted">{{ invoice.tenant.email ?: 'No company email' }}</div>
+                <div class="muted">{{ invoice.tenant.phone ?: '' }}</div>
+            </div>
+            <div>
+                <div class="section-label">To</div>
+                <div class="fw-semibold">{{ invoice.contact ? invoice.contact.displayName : 'Customer' }}</div>
+                <div class="muted">{% if invoice.contact and invoice.contact.primaryEmail %}{{ invoice.contact.primaryEmail }}{% else %}No customer email{% endif %}</div>
+                <div class="muted">{% if invoice.contact and invoice.contact.primaryPhone %}{{ invoice.contact.primaryPhone }}{% endif %}</div>
+            </div>
+        </div>
+
+        <table class="table">
+            <thead>
+            <tr>
+                <th>Section</th>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Total</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for lineItem in lineItems %}
+                <tr>
+                    <td>{{ lineItem.sectionLabel ?: 'General' }}</td>
+                    <td>{{ lineItem.description|nl2br }}</td>
+                    <td>{{ lineItem.quantity }}</td>
+                    <td>${{ (lineItem.unitPriceCents / 100)|number_format(2) }}</td>
+                    <td>${{ (lineItem.totalCents / 100)|number_format(2) }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5">No line items.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="totals">
+            <div><span>Subtotal</span><span>${{ (invoice.subtotalCents / 100)|number_format(2) }}</span></div>
+            <div><span>Tax</span><span>${{ (invoice.taxCents / 100)|number_format(2) }}</span></div>
+            <div><strong>Total</strong><strong>${{ (invoice.totalCents / 100)|number_format(2) }}</strong></div>
+            <div><span>Paid</span><span>${{ (invoice.amountPaidCents / 100)|number_format(2) }}</span></div>
+            <div><strong>Balance</strong><strong>${{ (invoice.balanceCents / 100)|number_format(2) }}</strong></div>
+        </div>
+
+        {% if invoice.notes %}
+            <div class="section-label">Notes</div>
+            <p>{{ invoice.notes|nl2br }}</p>
+        {% endif %}
+        {% if invoice.paymentInstructions %}
+            <div class="section-label">Payment Instructions</div>
+            <p>{{ invoice.paymentInstructions|nl2br }}</p>
+        {% endif %}
+        {% if invoice.tenant.invoiceFooter %}
+            <div class="section-label">Footer</div>
+            <p>{{ invoice.tenant.invoiceFooter|nl2br }}</p>
+        {% endif %}
+        {% if printable %}
+            <p class="muted">Printed {{ 'now'|date('Y-m-d H:i') }}</p>
+        {% endif %}
+    </section>
+
+    {% if paymentAllocations is defined and paymentAllocations is not empty %}
+        <section class="card payments">
+            <h2 class="h4" style="margin-top:0;">Payment History</h2>
+            <div class="grid">
+                {% for allocation in paymentAllocations %}
+                    <div>
+                        <div class="fw-semibold">{{ allocation.payment.paymentNumber }}</div>
+                        <div class="small muted">{{ allocation.payment.kind|replace({'_':' '})|title }} · {{ allocation.payment.receivedAt|date('Y-m-d') }}</div>
+                        <div class="small">${{ (allocation.amountCents / 100)|number_format(2) }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+</main>
+</body>
+</html>

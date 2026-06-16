@@ -28,4 +28,33 @@ class InvoiceRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
     }
+
+    /** @return list<Invoice> */
+    public function findOpenByTenant(Tenant $tenant): array
+    {
+        return $this->createQueryBuilder('i')
+            ->andWhere('i.tenant = :tenant')
+            ->andWhere('i.status NOT IN (:closedStatuses)')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('closedStatuses', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED, Invoice::STATUS_VOID])
+            ->orderBy('i.dueAt', 'ASC')
+            ->addOrderBy('i.updatedAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /** @return list<Invoice> */
+    public function findAgingByTenant(Tenant $tenant): array
+    {
+        return $this->createQueryBuilder('i')
+            ->andWhere('i.tenant = :tenant')
+            ->andWhere('i.status NOT IN (:closedStatuses)')
+            ->andWhere('i.totalCents > i.amountPaidCents')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('closedStatuses', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED, Invoice::STATUS_VOID])
+            ->orderBy('i.dueAt', 'ASC')
+            ->addOrderBy('i.updatedAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
 }

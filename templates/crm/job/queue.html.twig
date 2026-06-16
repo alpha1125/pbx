@@ -1,0 +1,56 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Technician Queue{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-1">Technician Queue</h1>
+            <p class="text-body-secondary mb-0">{{ tenant.name }}</p>
+        </div>
+        <a class="btn btn-outline-primary" href="{{ path('crm_job_index') }}">Dispatch Board</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Assigned Jobs</h2>
+                    <div class="list-group list-group-flush">
+                        {% for job in jobs %}
+                            <a class="list-group-item list-group-item-action px-0" href="{{ path('crm_job_show', {id: job.id}) }}">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <div class="fw-semibold">{{ job.title ?: 'Untitled job' }}</div>
+                                        <div class="small text-body-secondary">{{ job.property.displayAddress }}</div>
+                                    </div>
+                                    <span class="badge text-bg-secondary">{{ job.statusLabel }}</span>
+                                </div>
+                            </a>
+                        {% else %}
+                            <div class="text-body-secondary">No assigned jobs.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Assigned Tasks</h2>
+                    <div class="list-group list-group-flush">
+                        {% for task in tasks %}
+                            <div class="list-group-item px-0">
+                                <div class="fw-semibold">{{ task.title }}</div>
+                                <div class="small text-body-secondary">{{ task.job.property.displayAddress }}</div>
+                                <div class="small">Job: {{ task.job.title ?: 'Untitled job' }}</div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No assigned tasks.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

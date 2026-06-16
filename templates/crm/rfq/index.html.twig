@@ -1,0 +1,56 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}RFQs{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-1">RFQs</h1>
+            <p class="text-body-secondary mb-0">Platform intake records for homeowner procurement requests.</p>
+        </div>
+        <a class="btn btn-primary" href="{{ path('crm_rfq_new') }}">Add RFQ</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>RFQ</th>
+                            <th>Customer</th>
+                            <th>Project</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rfq in rfqs %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ rfq.addressLine1 }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.city }}, {{ rfq.province }} {{ rfq.postalCode }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.externalReference ?: 'No external reference' }}</div>
+                                </td>
+                                <td>
+                                    <div>{{ rfq.customerName ?: 'Unknown customer' }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.customerPhone ?: rfq.customerEmail ?: 'No contact info' }}</div>
+                                </td>
+                                <td>{{ rfq.projectType ?: 'HVAC RFQ' }}</td>
+                                <td>{{ rfq.status|replace({'_':' '})|title }}</td>
+                                <td class="text-end">
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_rfq_show', {id: rfq.id}) }}">View</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_rfq_edit', {id: rfq.id}) }}">Edit</a>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-body-secondary py-4">No RFQs yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

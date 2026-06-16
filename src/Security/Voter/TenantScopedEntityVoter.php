@@ -11,6 +11,8 @@ use App\Entity\Contact;
 use App\Entity\Equipment;
 use App\Entity\Estimate;
 use App\Entity\Invoice;
+use App\Entity\Job;
+use App\Entity\Task;
 use App\Entity\Property;
 use App\Entity\Quote;
 use App\Entity\RfqInvitation;
@@ -45,6 +47,8 @@ final class TenantScopedEntityVoter extends Voter
         return $subject instanceof Property
             || $subject instanceof Contact
             || $subject instanceof Equipment
+            || $subject instanceof Job
+            || $subject instanceof Task
             || $subject instanceof Estimate
             || $subject instanceof Quote
             || $subject instanceof Invoice
@@ -105,7 +109,7 @@ final class TenantScopedEntityVoter extends Voter
                 UserTenantMembership::ROLE_SALES,
                 UserTenantMembership::ROLE_DISPATCH,
             ]),
-            $subject instanceof Property, $subject instanceof Contact, $subject instanceof Equipment, $subject instanceof CallSession => $this->membershipHasAnyRole($membership, [
+            $subject instanceof Property, $subject instanceof Contact, $subject instanceof Equipment, $subject instanceof CallSession, $subject instanceof Job, $subject instanceof Task => $this->membershipHasAnyRole($membership, [
                 UserTenantMembership::ROLE_TENANT_ADMIN,
                 UserTenantMembership::ROLE_SALES,
                 UserTenantMembership::ROLE_DISPATCH,

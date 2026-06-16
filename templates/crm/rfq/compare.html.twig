@@ -1,0 +1,90 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}RFQ Comparison{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_rfq_operator_index') }}">Back to RFQ Operations</a>
+            <h1 class="h2 mt-2 mb-1">Comparison View</h1>
+            <p class="text-body-secondary mb-0">{{ rfq.addressLine1 }}, {{ rfq.city }}, {{ rfq.province }} {{ rfq.postalCode }}</p>
+        </div>
+        <div class="text-end">
+            <div class="small text-body-secondary">RFQ Status</div>
+            <div class="fw-semibold">{{ rfq.status|replace({'_':' '})|title }}</div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="small text-body-secondary">Invitation Count</div>
+                    <div class="display-6">{{ invitations|length }}</div>
+                </div>
+            </div>
+        </div>
+        {% for status, count in statusCounts %}
+            <div class="col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="small text-body-secondary">{{ status|replace({'_':' '})|title }}</div>
+                        <div class="display-6">{{ count }}</div>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="small text-body-secondary">Statuses</div>
+                        <div class="display-6">0</div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>Status</th>
+                            <th>Invited</th>
+                            <th>Viewed</th>
+                            <th>Expires</th>
+                            <th>Reminder</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invitation in invitations %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ invitation.tenant.name }}</div>
+                                    <div class="small text-body-secondary">{{ invitation.tenant.phone ?: 'No phone' }}</div>
+                                </td>
+                                <td>{{ invitation.status|replace({'_':' '})|title }}</td>
+                                <td>{{ invitation.invitedAt ? invitation.invitedAt|date('Y-m-d H:i') : 'n/a' }}</td>
+                                <td>{{ invitation.viewedAt ? invitation.viewedAt|date('Y-m-d H:i') : 'n/a' }}</td>
+                                <td>{{ invitation.expiresAt ? invitation.expiresAt|date('Y-m-d H:i') : 'n/a' }}</td>
+                                <td>
+                                    <div>{{ invitation.reminderAt ? invitation.reminderAt|date('Y-m-d H:i') : 'n/a' }}</div>
+                                    {% if invitation.reminderNotes %}
+                                        <div class="small text-body-secondary">{{ invitation.reminderNotes }}</div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-body-secondary py-4">No invitations exist for this RFQ yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

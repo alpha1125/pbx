@@ -43,4 +43,29 @@ class TenantRepository extends ServiceEntityRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    /**
+     * @return list<Tenant>
+     */
+    public function findForVendorAnalytics(?string $search): array
+    {
+        $qb = $this->createQueryBuilder('tenant')
+            ->andWhere('tenant.rfqVendorEnabled = true')
+            ->orderBy('tenant.name', 'ASC');
+
+        if (null !== $search && '' !== trim($search)) {
+            $term = '%'.mb_strtolower(trim($search)).'%';
+            $qb
+                ->andWhere(
+                    $qb->expr()->orX(
+                        'LOWER(tenant.name) LIKE :term',
+                        'LOWER(COALESCE(tenant.legalName, \'\')) LIKE :term',
+                        'LOWER(COALESCE(tenant.email, \'\')) LIKE :term',
+                    ),
+                )
+                ->setParameter('term', $term);
+        }
+
+        return $qb->getQuery()->getResult();
+    }
 }

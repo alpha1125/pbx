@@ -6,6 +6,7 @@ namespace App\Repository;
 
 use App\Entity\Property;
 use App\Entity\Quote;
+use App\Entity\Estimate;
 use App\Entity\Tenant;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -44,6 +45,11 @@ class QuoteRepository extends ServiceEntityRepository
         return $this->findOneBy(['shareToken' => $token]);
     }
 
+    public function findOneByEstimate(Estimate $estimate): ?Quote
+    {
+        return $this->findOneBy(['estimate' => $estimate]);
+    }
+
     public function findLatestRevisionForRoot(Quote $quote): ?Quote
     {
         $root = $quote->getRootQuote() ?? $quote;
@@ -56,5 +62,41 @@ class QuoteRepository extends ServiceEntityRepository
             ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
+    }
+
+    /**
+     * @param list<int> $tenantIds
+     * @return list<Quote>
+     */
+    public function findForVendorAnalyticsByTenantIds(array $tenantIds): array
+    {
+        if ([] === $tenantIds) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('quote')
+            ->leftJoin('quote.tenant', 'tenant')->addSelect('tenant')
+            ->leftJoin('quote.property', 'property')->addSelect('property')
+            ->leftJoin('quote.contact', 'contact')->addSelect('contact')
+            ->leftJoin('quote.estimate', 'estimate')->addSelect('estimate')
+            ->andWhere('tenant.id IN (:tenantIds)')
+            ->setParameter('tenantIds', $tenantIds)
+            ->orderBy('tenant.name', 'ASC')
+            ->addOrderBy('quote.sentAt', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    public function countSentBetween(\DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return (int) $this->createQueryBuilder('quote')
+            ->select('COUNT(quote.id)')
+            ->andWhere('quote.sentAt IS NOT NULL')
+            ->andWhere('quote.sentAt >= :from')
+            ->andWhere('quote.sentAt < :to')
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 }

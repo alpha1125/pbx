@@ -9,6 +9,7 @@ use App\Entity\CallSession;
 use App\Entity\CallSummary;
 use App\Entity\CallTranscript;
 use App\Entity\CommunicationTimelineItem;
+use App\Entity\Job;
 use App\Entity\Invoice;
 use App\Entity\Quote;
 use App\Entity\Property;
@@ -19,7 +20,7 @@ use App\Repository\CallTranscriptRepository;
 use App\Repository\CommunicationTimelineItemRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class CommunicationTimelineProjector
+class CommunicationTimelineProjector implements InvoiceTimelineProjectorInterface
 {
     public function __construct(
         private readonly CallSessionRepository $callSessions,
@@ -109,6 +110,41 @@ final class CommunicationTimelineProjector
                 'action' => $action,
                 'invoiceNumber' => $invoice->getInvoiceNumber(),
                 'status' => $invoice->getStatus(),
+            ], $metadata ?? []))
+            ->touch();
+
+        $this->entityManager->flush();
+    }
+
+    public function recordJobEvent(Job $job, string $action, ?string $bodyText = null, ?array $metadata = null): void
+    {
+        if (null === $job->getId() || null === $job->getTenant()) {
+            return;
+        }
+
+        $item = $this->findOrCreate(
+            sprintf('job_event:%d:%s', $job->getId(), $action),
+            $job->getTenant(),
+            CommunicationTimelineItem::TYPE_STATUS_CHANGE,
+            new \DateTimeImmutable(),
+        );
+
+        $item
+            ->setProperty($job->getProperty())
+            ->setContact($job->getContact())
+            ->setQuote($job->getQuote())
+            ->setInvoice($job->getInvoice())
+            ->setOccurredAt(new \DateTimeImmutable())
+            ->setBodyText($bodyText ?? sprintf('Job event: %s.', $action))
+            ->setMetadata(array_merge([
+                'action' => $action,
+                'jobId' => $job->getId(),
+                'jobTitle' => $job->getTitle(),
+                'status' => $job->getStatus(),
+                'assignedTo' => $job->getAssignedTo()?->getDisplayName(),
+                'scheduledStartAt' => $job->getScheduledStartAt()?->format(DATE_ATOM),
+                'scheduledEndAt' => $job->getScheduledEndAt()?->format(DATE_ATOM),
+                'completedAt' => $job->getCompletedAt()?->format(DATE_ATOM),
             ], $metadata ?? []))
             ->touch();
 

@@ -1,0 +1,161 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Procurement Intelligence{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-1">Procurement Intelligence</h1>
+            <p class="text-body-secondary mb-0">Basic procurement insight surfaces without AI automation.</p>
+        </div>
+        <a class="btn btn-outline-primary" href="{{ path('crm_rfq_analytics_index') }}">Back to Vendor Analytics</a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="small text-body-secondary">Vendors tracked</div>
+                    <div class="h3 mb-0">{{ summary.vendors }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="small text-body-secondary">RFQs in trend window</div>
+                    <div class="h3 mb-0">{{ summary.rfqsCreated }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="small text-body-secondary">Invitations in trend window</div>
+                    <div class="h3 mb-0">{{ summary.invitationsSent }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="small text-body-secondary">Jobs completed</div>
+                    <div class="h3 mb-0">{{ summary.jobsCompleted }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-6 col-lg-4">
+                    <label class="form-label" for="q">Filter vendors</label>
+                    <input class="form-control" id="q" name="q" value="{{ search }}" placeholder="Vendor name, legal name, or email">
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <button class="btn btn-primary" type="submit">Refresh</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        {% for recommendation in recommendations %}
+            <div class="col-lg-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h2 class="h5 mb-0">{{ recommendation.title }}</h2>
+                            <span class="badge text-bg-secondary">{{ recommendation.badge }}</span>
+                        </div>
+                        <p class="mb-0 text-body-secondary">{{ recommendation.body }}</p>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="col-12">
+                <div class="alert alert-info mb-0">No procurement recommendations yet. Add more RFQs, invitations, and quotes to build ranking signals.</div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Trend Reporting</h2>
+                <span class="badge text-bg-secondary">6-week window</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Week</th>
+                            <th>RFQs</th>
+                            <th>Invitations</th>
+                            <th>Quotes</th>
+                            <th>Jobs completed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in trendRows %}
+                            <tr>
+                                <td class="fw-semibold">{{ row.label }}</td>
+                                <td>{{ row.rfqsCreated }}</td>
+                                <td>{{ row.invitationsSent }}</td>
+                                <td>{{ row.quotesCreated }}</td>
+                                <td>{{ row.jobsCompleted }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-body-secondary py-4">No trend data available.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Vendor Ranking Placeholders</h2>
+                <span class="badge text-bg-secondary">{{ rankedVendors|length }} ranked vendor(s)</span>
+            </div>
+            <p class="text-body-secondary">These rankings are heuristic placeholders based on engagement and completion signals, not automated procurement decisions.</p>
+
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Vendor</th>
+                            <th>Score</th>
+                            <th>Signals</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for vendor in rankedVendors %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ vendor.tenant.name }}</div>
+                                    <div class="small text-body-secondary">{{ vendor.tenant.email ?: 'No email on file' }}</div>
+                                </td>
+                                <td class="fw-semibold">{{ vendor.score }}</td>
+                                <td class="small">
+                                    {% for signal in vendor.signals %}
+                                        <div>{{ signal }}</div>
+                                    {% endfor %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="3" class="text-center text-body-secondary py-4">No vendors match the current filter.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

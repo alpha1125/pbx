@@ -71,6 +71,36 @@
                             </div>
                         {% endif %}
 
+                        {% if currentTenant and canEditCurrentTenantInvoiceSettings %}
+                            <div class="col-12"><hr class="my-2"></div>
+
+                            <div class="col-12">
+                                <h2 class="h5 mb-2">Invoice Settings for {{ currentTenant.name }}</h2>
+                                <p class="text-body-secondary mb-0">Defaults applied when creating invoices from accepted quotes.</p>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="invoiceDueDays" class="form-label">Default Due Days</label>
+                                <input id="invoiceDueDays" name="invoiceDueDays" class="form-control" type="number" min="0" max="365" value="{{ currentTenant.invoiceDueDays }}">
+                            </div>
+
+                            <div class="col-12">
+                                <label for="invoicePaymentInstructions" class="form-label">Default Payment Instructions</label>
+                                <textarea id="invoicePaymentInstructions" name="invoicePaymentInstructions" class="form-control" rows="4">{{ currentTenant.invoicePaymentInstructions ?: '' }}</textarea>
+                            </div>
+
+                            <div class="col-12">
+                                <label for="invoiceFooter" class="form-label">Invoice Footer</label>
+                                <textarea id="invoiceFooter" name="invoiceFooter" class="form-control" rows="3">{{ currentTenant.invoiceFooter ?: '' }}</textarea>
+                            </div>
+                        {% elseif currentTenant %}
+                            <div class="col-12">
+                                <div class="alert alert-info mb-0">
+                                    You can view this tenant, but only tenant admins can change invoice defaults.
+                                </div>
+                            </div>
+                        {% endif %}
+
                         <div class="col-12"><hr class="my-2"></div>
 
                         <div class="col-md-4">

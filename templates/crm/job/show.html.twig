@@ -1,0 +1,276 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Job #{{ job.id }}{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_job_index') }}">Back to Jobs</a>
+            <h1 class="h2 mt-2 mb-1">{{ job.title ?: 'Untitled job' }}</h1>
+            <p class="text-body-secondary mb-0">{{ job.property.displayAddress }}</p>
+        </div>
+        <span class="badge text-bg-secondary align-self-start">{{ job.statusLabel }}</span>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5">Scheduling</h2>
+                    <form method="post" action="{{ path('crm_job_assign', {id: job.id}) }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_job_assign_' ~ job.id) }}">
+                        <div class="col-12">
+                            <label class="form-label" for="assignedToId">Assigned To</label>
+                            <select class="form-select" id="assignedToId" name="assignedToId">
+                                <option value="">Unassigned</option>
+                                {% for membership in assigneeMemberships %}
+                                    {% if membership.isActive %}
+                                        <option value="{{ membership.user.id }}" {% if job.assignedTo and job.assignedTo.id == membership.user.id %}selected{% endif %}>{{ membership.user.displayName }}{% if membership.roles is not empty %} - {{ membership.roles|map(role => role|replace({'ROLE_':' '})|lower|replace({'_':' '})|title)|join(', ') }}{% endif %}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="status">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                {% for value, label in {
+                                    'unscheduled': 'Unscheduled',
+                                    'scheduled': 'Scheduled',
+                                    'in_progress': 'In progress',
+                                    'completed': 'Completed',
+                                    'cancelled': 'Cancelled'
+                                } %}
+                                    <option value="{{ value }}" {% if job.status == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="scheduledStartAt">Start</label>
+                            <input class="form-control" id="scheduledStartAt" name="scheduledStartAt" type="datetime-local" value="{{ job.scheduledStartAt ? job.scheduledStartAt|date('Y-m-d\\TH:i') : '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="scheduledEndAt">End</label>
+                            <input class="form-control" id="scheduledEndAt" name="scheduledEndAt" type="datetime-local" value="{{ job.scheduledEndAt ? job.scheduledEndAt|date('Y-m-d\\TH:i') : '' }}">
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Save Assignment</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Job Details</h2>
+                    <dl class="row mb-0">
+                        <dt class="col-5">Property</dt>
+                        <dd class="col-7">{{ job.property.displayAddress }}</dd>
+                        <dt class="col-5">Contact</dt>
+                        <dd class="col-7">{{ job.contact ? job.contact.displayName : 'None' }}</dd>
+                        <dt class="col-5">Quote</dt>
+                        <dd class="col-7">{{ job.quote ? job.quote.quoteNumber : 'None' }}</dd>
+                        <dt class="col-5">Invoice</dt>
+                        <dd class="col-7">{{ job.invoice ? job.invoice.invoiceNumber : 'None' }}</dd>
+                        <dt class="col-5">Equipment</dt>
+                        <dd class="col-7">{{ job.equipment ? job.equipment.equipmentType|replace({'_':' '})|title : 'None' }}</dd>
+                        <dt class="col-5">Unresolved Issues</dt>
+                        <dd class="col-7">{{ job.unresolvedIssueNotes ?: 'None' }}</dd>
+                        <dt class="col-5">Service Reminder</dt>
+                        <dd class="col-7">
+                            {{ job.serviceReminderAt ? job.serviceReminderAt|date('Y-m-d H:i') : 'None' }}
+                            {% if job.serviceReminderNotes %}
+                                <div class="text-body-secondary">{{ job.serviceReminderNotes }}</div>
+                            {% endif %}
+                        </dd>
+                        <dt class="col-5">Assigned At</dt>
+                        <dd class="col-7">{{ job.assignedAt ? job.assignedAt|date('Y-m-d H:i') : 'Not assigned' }}</dd>
+                        <dt class="col-5">Follow-up</dt>
+                        <dd class="col-7">{{ job.followUpGeneratedAt ? job.followUpSummary ?: ('Generated ' ~ job.followUpGeneratedAt|date('Y-m-d H:i')) : 'Not generated yet' }}</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Field Notes</h2>
+                    <form method="post" action="{{ path('crm_job_field_notes', {id: job.id}) }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_job_field_notes_' ~ job.id) }}">
+                        <div class="col-12">
+                            <label class="form-label" for="fieldEquipmentId">Equipment</label>
+                            <select class="form-select" id="fieldEquipmentId" name="equipmentId">
+                                <option value="">Use job equipment</option>
+                                {% for unit in equipment %}
+                                    <option value="{{ unit.id }}" {% if job.equipment and job.equipment.id == unit.id %}selected{% endif %}>{{ unit.equipmentType|replace({'_':' '})|title }} - {{ unit.brand ?: 'Unknown brand' }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="arrivedAt">Arrived At</label>
+                            <input class="form-control" id="arrivedAt" name="arrivedAt" type="datetime-local" value="{{ job.arrivedAt ? job.arrivedAt|date('Y-m-d\\TH:i') : '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="completedAt">Completed At</label>
+                            <input class="form-control" id="completedAt" name="completedAt" type="datetime-local" value="{{ job.completedAt ? job.completedAt|date('Y-m-d\\TH:i') : '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="technicianNotes">Technician Notes</label>
+                            <textarea class="form-control" id="technicianNotes" name="technicianNotes" rows="3">{{ job.technicianNotes ?: job.notes ?: '' }}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="recommendedRepairNotes">Recommended Repair</label>
+                            <textarea class="form-control" id="recommendedRepairNotes" name="recommendedRepairNotes" rows="2">{{ job.recommendedRepairNotes ?: '' }}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="recommendedReplacementNotes">Recommended Replacement</label>
+                            <textarea class="form-control" id="recommendedReplacementNotes" name="recommendedReplacementNotes" rows="2">{{ job.recommendedReplacementNotes ?: '' }}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="unresolvedIssueNotes">Unresolved Issues</label>
+                            <textarea class="form-control" id="unresolvedIssueNotes" name="unresolvedIssueNotes" rows="2">{{ job.unresolvedIssueNotes ?: '' }}</textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="serviceReminderAt">Service Reminder At</label>
+                            <input class="form-control" id="serviceReminderAt" name="serviceReminderAt" type="datetime-local" value="{{ job.serviceReminderAt ? job.serviceReminderAt|date('Y-m-d\\TH:i') : '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="serviceReminderNotes">Service Reminder Notes</label>
+                            <textarea class="form-control" id="serviceReminderNotes" name="serviceReminderNotes" rows="2">{{ job.serviceReminderNotes ?: '' }}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Save Field Notes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Follow-up Workflow</h2>
+                    <div class="list-group list-group-flush">
+                        {% for task in followUpTasks %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ task.title }}</div>
+                                        <div class="small text-body-secondary">{{ task.kindLabel }}</div>
+                                        <div class="small">{{ task.description ?: task.notes ?: 'No details' }}</div>
+                                    </div>
+                                    <div class="text-end small text-body-secondary">
+                                        <div>{{ task.scheduledStartAt ? task.scheduledStartAt|date('Y-m-d H:i') : 'No reminder date' }}</div>
+                                        <div>{{ task.assignedTo ? task.assignedTo.displayName : 'Unassigned' }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No follow-up tasks generated yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5">Tasks</h2>
+                    <div class="list-group list-group-flush">
+                        {% for task in tasks %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ task.title }}</div>
+                                        <div class="small text-body-secondary">{{ task.kindLabel }}</div>
+                                        <div class="small text-body-secondary">{{ task.description ?: 'No description' }}</div>
+                                        <div class="small">Status: {{ task.statusLabel }}</div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small text-body-secondary">{{ task.assignedTo ? task.assignedTo.displayName : 'Unassigned' }}</div>
+                                    </div>
+                                </div>
+                                <form method="post" action="{{ path('crm_job_task_assign', {jobId: job.id, taskId: task.id}) }}" class="row g-2">
+                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_task_assign_' ~ task.id) }}">
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1" for="task-assignedToId-{{ task.id }}">Assigned To</label>
+                                        <select class="form-select form-select-sm" id="task-assignedToId-{{ task.id }}" name="assignedToId">
+                                            <option value="">Unassigned</option>
+                                            {% for membership in assigneeMemberships %}
+                                                {% if membership.isActive %}
+                                                    <option value="{{ membership.user.id }}" {% if task.assignedTo and task.assignedTo.id == membership.user.id %}selected{% endif %}>{{ membership.user.displayName }}</option>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1" for="task-status-{{ task.id }}">Status</label>
+                                        <select class="form-select form-select-sm" id="task-status-{{ task.id }}" name="status">
+                                            {% for value, label in {
+                                                'unscheduled': 'Unscheduled',
+                                                'scheduled': 'Scheduled',
+                                                'in_progress': 'In progress',
+                                                'completed': 'Completed',
+                                                'cancelled': 'Cancelled'
+                                            } %}
+                                                <option value="{{ value }}" {% if task.status == value %}selected{% endif %}>{{ label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1" for="task-start-{{ task.id }}">Start</label>
+                                        <input class="form-control form-control-sm" id="task-start-{{ task.id }}" name="scheduledStartAt" type="datetime-local" value="{{ task.scheduledStartAt ? task.scheduledStartAt|date('Y-m-d\\TH:i') : '' }}">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1" for="task-end-{{ task.id }}">End</label>
+                                        <input class="form-control form-control-sm" id="task-end-{{ task.id }}" name="scheduledEndAt" type="datetime-local" value="{{ task.scheduledEndAt ? task.scheduledEndAt|date('Y-m-d\\TH:i') : '' }}">
+                                    </div>
+                                    <div class="col-12">
+                                        <button class="btn btn-sm btn-outline-primary" type="submit">Save Task</button>
+                                    </div>
+                                </form>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No tasks yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Service History</h2>
+                    <div class="list-group list-group-flush">
+                        {% for record in serviceRecords %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                    <div>
+                                        <div class="fw-semibold">{{ record.serviceType ?: 'Service visit' }}</div>
+                                        <div class="small text-body-secondary">
+                                            {{ record.equipment ? record.equipment.equipmentType|replace({'_':' '})|title : 'Property service' }}
+                                            {% if record.technician %}
+                                                - {{ record.technician.displayName }}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div class="text-end small text-body-secondary">
+                                        <div>{{ record.arrivedAt ? 'Arrived ' ~ record.arrivedAt|date('Y-m-d H:i') : 'Arrival not recorded' }}</div>
+                                        <div>{{ record.completedAt ? 'Completed ' ~ record.completedAt|date('Y-m-d H:i') : 'Completion not recorded' }}</div>
+                                    </div>
+                                </div>
+                                {% if record.technicianNotes %}
+                                    <div class="small mb-1"><span class="fw-semibold">Notes:</span> {{ record.technicianNotes }}</div>
+                                {% endif %}
+                                {% if record.recommendedRepairNotes %}
+                                    <div class="small mb-1"><span class="fw-semibold">Repair:</span> {{ record.recommendedRepairNotes }}</div>
+                                {% endif %}
+                                {% if record.recommendedReplacementNotes %}
+                                    <div class="small"><span class="fw-semibold">Replacement:</span> {{ record.recommendedReplacementNotes }}</div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No service history recorded yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

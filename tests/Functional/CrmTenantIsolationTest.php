@@ -9,7 +9,9 @@ use App\Entity\CallSession;
 use App\Entity\CallTranscript;
 use App\Entity\Contact;
 use App\Entity\Estimate;
+use App\Entity\InvoiceAccountingSyncRecord;
 use App\Entity\Invoice;
+use App\Entity\InvoiceLineItem;
 use App\Entity\Property;
 use App\Entity\PropertyContact;
 use App\Entity\Quote;
@@ -18,7 +20,11 @@ use App\Entity\RfqInvitation;
 use App\Entity\Tenant;
 use App\Entity\User;
 use App\Entity\UserTenantMembership;
+use App\Repository\JobRepository;
 use App\Repository\UserRepository;
+use App\Repository\InvoiceAccountingSyncRecordRepository;
+use App\Service\AuditLogger;
+use App\Service\InvoiceAccountingBoundaryService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -283,10 +289,265 @@ final class CrmTenantIsolationTest extends WebTestCase
         self::assertInstanceOf(Quote::class, $acceptedQuote);
         self::assertSame(Quote::STATUS_ACCEPTED, $acceptedQuote->getStatus());
         self::assertNotNull($acceptedQuote->getAcceptedAt());
+        $job = static::getContainer()->get(JobRepository::class)->findOneByQuote($acceptedQuote);
+        self::assertInstanceOf(\App\Entity\Job::class, $job);
+        self::assertSame('Work order for quote '.$acceptedQuote->getQuoteNumber(), $job->getTitle());
 
         $this->client->request('GET', '/quotes/'.$shareToken.'/pdf');
         self::assertResponseIsSuccessful();
         self::assertSame('application/pdf', $this->client->getResponse()->headers->get('Content-Type'));
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Job created from accepted quote.');
+    }
+
+    public function testInvoiceEditorAndPaymentsUpdateBalanceAndStatus(): void
+    {
+        $data = $this->seedTenantData();
+
+        $this->client->loginUser($data['ownerUser']);
+        $crawler = $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+        self::assertResponseIsSuccessful();
+
+        $lineItemToken = $crawler->filter('form[action="/crm/invoices/'.$data['invoice']->getId().'/line-items"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/invoices/%d/line-items', $data['invoice']->getId()), [
+            '_token' => $lineItemToken,
+            'sectionLabel' => 'Repair scope',
+            'description' => 'Replace contactor',
+            'quantity' => '1',
+            'unitPrice' => '100.00',
+        ]);
+
+        self::assertResponseRedirects('/crm/invoices/'.$data['invoice']->getId());
+
+        $crawler = $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+        self::assertSelectorTextContains('body', 'Replace contactor');
+        self::assertSelectorTextContains('body', '$100.00');
+
+        $paymentToken = $crawler->filter('form[action="/crm/invoices/'.$data['invoice']->getId().'/payments"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/invoices/%d/payments', $data['invoice']->getId()), [
+            '_token' => $paymentToken,
+            'amount' => '25.00',
+            'kind' => 'received',
+            'method' => 'Cash',
+            'receivedAt' => '2026-06-15',
+            'reference' => 'REC-1',
+            'memo' => 'Partial payment.',
+        ]);
+
+        self::assertResponseRedirects('/crm/invoices/'.$data['invoice']->getId());
+
+        $this->entityManager->clear();
+        $invoice = $this->entityManager->getRepository(Invoice::class)->find($data['invoice']->getId());
+        self::assertInstanceOf(Invoice::class, $invoice);
+        self::assertSame(Invoice::STATUS_PARTIALLY_PAID, $invoice->getStatus());
+        self::assertSame(2500, $invoice->getAmountPaidCents());
+
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+        self::assertSelectorTextContains('body', 'Balance $75.00');
+        self::assertSelectorTextContains('body', 'REC-1');
+    }
+
+    public function testInvoiceOutputSendReminderAndAgingAreAvailable(): void
+    {
+        $data = $this->seedTenantData();
+        $data['invoice']
+            ->setDueAt(new \DateTimeImmutable('yesterday'))
+            ->setIssuedAt(new \DateTimeImmutable('yesterday'))
+            ->setStatus(Invoice::STATUS_UNPAID);
+        $this->entityManager->persist(
+            (new InvoiceLineItem($data['tenant'], $data['invoice'], 'Service work'))
+                ->setQuantity('1.00')
+                ->setUnitPriceCents(10000)
+                ->setTotalCents(10000)
+                ->setSortOrder(1),
+        );
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['ownerUser']);
+
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId().'/print');
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', $data['invoice']->getInvoiceNumber());
+
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId().'/pdf');
+        self::assertResponseIsSuccessful();
+        self::assertSame('application/pdf', $this->client->getResponse()->headers->get('Content-Type'));
+
+        $crawler = $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+        $sendToken = $crawler->filter('form[action="/crm/invoices/'.$data['invoice']->getId().'/send"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/invoices/%d/send', $data['invoice']->getId()), [
+            '_token' => $sendToken,
+        ]);
+
+        self::assertResponseRedirects('/crm/invoices/'.$data['invoice']->getId());
+
+        $crawler = $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+        $remindToken = $crawler->filter('form[action="/crm/invoices/'.$data['invoice']->getId().'/remind"] input[name="_token"]')->attr('value');
+        $this->client->request('POST', sprintf('/crm/invoices/%d/remind', $data['invoice']->getId()), [
+            '_token' => $remindToken,
+        ]);
+
+        self::assertResponseRedirects('/crm/invoices/'.$data['invoice']->getId());
+
+        $this->entityManager->clear();
+        $invoice = $this->entityManager->getRepository(Invoice::class)->find($data['invoice']->getId());
+        self::assertInstanceOf(Invoice::class, $invoice);
+        self::assertNotNull($invoice->getSentAt());
+        self::assertSame(1, $invoice->getReminderCount());
+        self::assertNotNull($invoice->getLastReminderAt());
+
+        $this->client->request('GET', '/crm/invoices/aging');
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', $invoice->getInvoiceNumber());
+    }
+
+    public function testInvoiceShowDisplaysAccountingBoundaryRecords(): void
+    {
+        $data = $this->seedTenantData();
+        $this->entityManager->persist(
+            (new InvoiceAccountingSyncRecord($data['invoice'], InvoiceAccountingSyncRecord::PROVIDER_QUICKBOOKS_ONLINE))
+                ->markPending()
+                ->setExternalId('qb-1001')
+                ->setExternalNumber('QB-INV-9001')
+                ->setErrorMessage('Queued for export.'),
+        );
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Accounting Integrations');
+        self::assertSelectorTextContains('body', 'QuickBooks Online');
+        self::assertSelectorTextContains('body', 'Pending export');
+        self::assertSelectorTextContains('body', 'qb-1001');
+        self::assertSelectorTextContains('body', 'QB-INV-9001');
+        self::assertSelectorTextContains('body', 'Queued for export.');
+    }
+
+    public function testInvoiceShowDisplaysRetryScheduledAccountingBoundaryRecords(): void
+    {
+        $data = $this->seedTenantData();
+        $this->entityManager->persist(
+            (new InvoiceAccountingSyncRecord($data['invoice'], InvoiceAccountingSyncRecord::PROVIDER_XERO))
+                ->markRetryScheduled(new \DateTimeImmutable('+45 minutes'), 'Xero temporarily unavailable.', ['attempt' => 2]),
+        );
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Retry scheduled');
+        self::assertSelectorTextContains('body', 'Retries: 1');
+        self::assertSelectorTextContains('body', 'Next retry');
+        self::assertSelectorTextContains('body', 'Xero temporarily unavailable.');
+    }
+
+    public function testRetryDueRepositoryFindsOnlyDueRecords(): void
+    {
+        $data = $this->seedTenantData();
+        $dueRecord = (new InvoiceAccountingSyncRecord($data['invoice'], InvoiceAccountingSyncRecord::PROVIDER_QUICKBOOKS_ONLINE))
+            ->markRetryScheduled(new \DateTimeImmutable('-5 minutes'), 'Temporary failure.');
+        $futureRecord = (new InvoiceAccountingSyncRecord($data['invoice'], InvoiceAccountingSyncRecord::PROVIDER_XERO))
+            ->markRetryScheduled(new \DateTimeImmutable('+5 minutes'), 'Temporary failure.');
+        $this->entityManager->persist($dueRecord);
+        $this->entityManager->persist($futureRecord);
+        $this->entityManager->flush();
+
+        /** @var InvoiceAccountingSyncRecordRepository $repository */
+        $repository = static::getContainer()->get(InvoiceAccountingSyncRecordRepository::class);
+        $records = $repository->findRetryDueByTenant($data['tenant'], new \DateTimeImmutable());
+
+        self::assertCount(1, $records);
+        self::assertSame($dueRecord->getId(), $records[0]->getId());
+        self::assertSame(InvoiceAccountingSyncRecord::STATUS_RETRY_SCHEDULED, $records[0]->getStatus());
+    }
+
+    public function testInvoiceShowDisplaysAccountingExportLogTrail(): void
+    {
+        $data = $this->seedTenantData();
+        $service = new InvoiceAccountingBoundaryService(
+            static::getContainer()->get(InvoiceAccountingSyncRecordRepository::class),
+            $this->entityManager,
+            static::getContainer()->get(AuditLogger::class),
+        );
+
+        $service->beginExport($data['invoice'], InvoiceAccountingSyncRecord::PROVIDER_QUICKBOOKS_ONLINE);
+        $service->markFailed(
+            $data['invoice'],
+            InvoiceAccountingSyncRecord::PROVIDER_QUICKBOOKS_ONLINE,
+            'QuickBooks API timeout.',
+            ['httpStatus' => 504],
+        );
+        $service->scheduleRetry(
+            $data['invoice'],
+            InvoiceAccountingSyncRecord::PROVIDER_QUICKBOOKS_ONLINE,
+            new \DateTimeImmutable('+1 hour'),
+            'Retrying after timeout.',
+            ['httpStatus' => 504],
+        );
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Export Log');
+        self::assertSelectorTextContains('body', 'invoice.accounting_export_started');
+        self::assertSelectorTextContains('body', 'invoice.accounting_export_failed');
+        self::assertSelectorTextContains('body', 'invoice.accounting_retry_scheduled');
+        self::assertSelectorTextContains('body', 'QuickBooks API timeout.');
+    }
+
+    public function testInvoiceShowDisplaysAccountingExportPayloadPreview(): void
+    {
+        $data = $this->seedTenantData();
+        $this->entityManager->persist(
+            (new InvoiceLineItem($data['tenant'], $data['invoice'], 'Service work'))
+                ->setQuantity('1.00')
+                ->setUnitPriceCents(10000)
+                ->setTotalCents(10000)
+                ->setSortOrder(1),
+        );
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm/invoices/'.$data['invoice']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Export Payloads');
+        self::assertSelectorTextContains('body', 'QuickBooks Online');
+        self::assertSelectorTextContains('body', 'Xero');
+        self::assertSelectorTextContains('body', '"provider": "quickbooks_online"');
+        self::assertSelectorTextContains('body', '"type": "ACCREC"');
+    }
+
+    public function testTenantAdminCanEditInvoiceSettingsFromProfile(): void
+    {
+        $data = $this->seedTenantData();
+
+        $this->client->loginUser($data['ownerUser']);
+        $crawler = $this->client->request('GET', '/crm/profile');
+        self::assertResponseIsSuccessful();
+
+        $this->client->submitForm('Save Profile', [
+            '_token' => $crawler->filter('input[name="_token"]')->attr('value'),
+            'invoiceDueDays' => '21',
+            'invoicePaymentInstructions' => "Send payment by e-transfer.",
+            'invoiceFooter' => 'Thank you for choosing us.',
+        ]);
+
+        self::assertResponseRedirects('/crm/profile');
+
+        $this->entityManager->clear();
+        $tenant = $this->entityManager->getRepository(Tenant::class)->find($data['tenant']->getId());
+        self::assertInstanceOf(Tenant::class, $tenant);
+        self::assertSame(21, $tenant->getInvoiceDueDays());
+        self::assertSame('Send payment by e-transfer.', $tenant->getInvoicePaymentInstructions());
+        self::assertSame('Thank you for choosing us.', $tenant->getInvoiceFooter());
     }
 
     private function truncateDatabase(): void
@@ -349,7 +610,7 @@ final class CrmTenantIsolationTest extends WebTestCase
         );
 
         $property = (new Property($tenant, '10 Heat Street', 'Toronto', 'ON', 'M1M1M1'))->setCountry('CA');
-        $contact = (new Contact($tenant, 'Tenant Contact'))->setPrimaryPhone('+14165550123');
+        $contact = (new Contact($tenant, 'Tenant Contact'))->setPrimaryPhone('+14165550123')->setPrimaryEmail('billing@example.com');
         $this->entityManager->persist($property);
         $this->entityManager->persist($contact);
         $this->entityManager->persist(

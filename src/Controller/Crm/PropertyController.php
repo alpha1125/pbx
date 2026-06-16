@@ -9,9 +9,11 @@ use App\Entity\CommunicationTimelineItem;
 use App\Entity\User;
 use App\Repository\AuditLogRepository;
 use App\Repository\EquipmentRepository;
+use App\Repository\EquipmentServiceRecordRepository;
 use App\Repository\CommunicationTimelineItemRepository;
 use App\Repository\PropertyContactRepository;
 use App\Repository\PropertyRepository;
+use App\Repository\TaskRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CommunicationTimelineProjector;
@@ -214,6 +216,8 @@ final class PropertyController extends AbstractController
         CommunicationTimelineItemRepository $timelineRepository,
         CommunicationTimelineProjector $timelineProjector,
         TranscriptMessageViewBuilder $messageBuilder,
+        EquipmentServiceRecordRepository $serviceRecordRepository,
+        TaskRepository $taskRepository,
     ): Response {
         $tenant = $tenantProvider->requireCurrentTenant();
         $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
@@ -260,6 +264,8 @@ final class PropertyController extends AbstractController
             'equipmentPage' => $equipmentPage,
             'equipmentPageSize' => $sublistPageSize,
             'totalEquipment' => $equipmentRepository->countByProperty($property),
+            'serviceHistoryRecords' => $serviceRecordRepository->findByProperty($property, 20),
+            'followUpTasks' => $taskRepository->findFollowUpsByProperty($property),
             'timelineItems' => $timelineItems,
             'timelineFilter' => $timelineFilter,
             'timelineSearch' => $searchQuery,

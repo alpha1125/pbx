@@ -18,7 +18,7 @@ class QuoteToInvoiceService
         private readonly QuoteLineItemRepository $quoteLineItemRepository,
         private readonly DocumentNumberGenerator $documentNumberGenerator,
         private readonly AuditLogger $auditLogger,
-        private readonly CommunicationTimelineProjector $timelineProjector,
+        private readonly InvoiceTimelineProjectorInterface $timelineProjector,
     ) {
     }
 
@@ -37,10 +37,13 @@ class QuoteToInvoiceService
                 ->setContact($quote->getContact())
                 ->setQuote($quote)
                 ->setIssuedAt(new \DateTimeImmutable('today'))
-                ->setDueAt(new \DateTimeImmutable('+30 days'))
+                ->setDueAt(new \DateTimeImmutable(sprintf('+%d days', $quote->getTenant()->getInvoiceDueDays())))
+                ->setStatus(Invoice::STATUS_UNPAID)
                 ->setSubtotalCents($quote->getSubtotalCents())
                 ->setTaxCents($quote->getTaxCents())
-                ->setTotalCents($quote->getTotalCents());
+                ->setTotalCents($quote->getTotalCents())
+                ->setAmountPaidCents(0)
+                ->setPaymentInstructions($quote->getTenant()->getInvoicePaymentInstructions());
             $this->entityManager->persist($invoice);
 
             foreach ($this->quoteLineItemRepository->findByQuote($quote) as $lineItem) {

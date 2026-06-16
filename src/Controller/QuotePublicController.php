@@ -8,6 +8,7 @@ use App\Entity\Quote;
 use App\Repository\QuoteLineItemRepository;
 use App\Repository\QuoteRepository;
 use App\Service\CommunicationTimelineProjector;
+use App\Service\QuoteToJobService;
 use Doctrine\ORM\EntityManagerInterface;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -106,6 +107,7 @@ final class QuotePublicController extends AbstractController
         QuoteRepository $quoteRepository,
         EntityManagerInterface $entityManager,
         CommunicationTimelineProjector $timelineProjector,
+        QuoteToJobService $quoteToJobService,
     ): RedirectResponse {
         $quote = $quoteRepository->findOneByShareToken($token);
         if (null === $quote) {
@@ -135,6 +137,7 @@ final class QuotePublicController extends AbstractController
             'acceptedByName' => $quote->getAcceptedByName(),
             'acceptedByEmail' => $quote->getAcceptedByEmail(),
         ]);
+        $quoteToJobService->createFromAcceptedQuote($quote);
 
         $this->addFlash('success', 'Quote accepted.');
 

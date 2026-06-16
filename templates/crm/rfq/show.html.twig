@@ -1,0 +1,57 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}RFQ{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_rfq_index') }}">Back to RFQs</a>
+            <h1 class="h2 mt-2 mb-1">{{ rfq.addressLine1 }}</h1>
+            <p class="text-body-secondary mb-0">{{ rfq.city }}, {{ rfq.province }} {{ rfq.postalCode }} · {{ rfq.status|replace({'_':' '})|title }}</p>
+        </div>
+        <a class="btn btn-outline-primary" href="{{ path('crm_rfq_edit', {id: rfq.id}) }}">Edit RFQ</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5">Intake Details</h2>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">External Reference</dt>
+                        <dd class="col-sm-8">{{ rfq.externalReference ?: 'None' }}</dd>
+
+                        <dt class="col-sm-4">Customer Name</dt>
+                        <dd class="col-sm-8">{{ rfq.customerName ?: 'Not provided' }}</dd>
+
+                        <dt class="col-sm-4">Customer Phone</dt>
+                        <dd class="col-sm-8">{{ rfq.customerPhone ?: 'Not provided' }}</dd>
+
+                        <dt class="col-sm-4">Customer Email</dt>
+                        <dd class="col-sm-8">{{ rfq.customerEmail ?: 'Not provided' }}</dd>
+
+                        <dt class="col-sm-4">Project Type</dt>
+                        <dd class="col-sm-8">{{ rfq.projectType ?: 'HVAC RFQ' }}</dd>
+
+                        <dt class="col-sm-4">Description</dt>
+                        <dd class="col-sm-8">{{ rfq.description ?: 'No description provided' }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5">Address</h2>
+                    <div class="fw-semibold">{{ rfq.addressLine1 }}</div>
+                    {% if rfq.addressLine2 %}
+                        <div>{{ rfq.addressLine2 }}</div>
+                    {% endif %}
+                    <div>{{ rfq.city }}, {{ rfq.province }} {{ rfq.postalCode }}</div>
+                    <div>{{ rfq.country }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

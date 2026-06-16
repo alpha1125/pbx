@@ -18,8 +18,10 @@ class Invoice
 {
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SENT = 'sent';
+    public const STATUS_UNPAID = 'unpaid';
     public const STATUS_PARTIALLY_PAID = 'partially_paid';
     public const STATUS_PAID = 'paid';
+    public const STATUS_REFUNDED = 'refunded';
     public const STATUS_OVERDUE = 'overdue';
     public const STATUS_VOID = 'void';
 
@@ -58,6 +60,27 @@ class Invoice
     #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $dueAt = null;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $sentAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $lastReminderAt = null;
+
+    #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
+    private int $reminderCount = 0;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $notes = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $paymentInstructions = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $voidedAt = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $voidReason = null;
+
     #[ORM\Column(type: Types::INTEGER, options: ['default' => 0])]
     private int $subtotalCents = 0;
 
@@ -92,6 +115,21 @@ class Invoice
     public function setIssuedAt(?\DateTimeImmutable $issuedAt): static { $this->issuedAt = $issuedAt; return $this; }
     public function getDueAt(): ?\DateTimeImmutable { return $this->dueAt; }
     public function setDueAt(?\DateTimeImmutable $dueAt): static { $this->dueAt = $dueAt; return $this; }
+    public function getSentAt(): ?\DateTimeImmutable { return $this->sentAt; }
+    public function setSentAt(?\DateTimeImmutable $sentAt): static { $this->sentAt = $sentAt; return $this; }
+    public function getLastReminderAt(): ?\DateTimeImmutable { return $this->lastReminderAt; }
+    public function setLastReminderAt(?\DateTimeImmutable $lastReminderAt): static { $this->lastReminderAt = $lastReminderAt; return $this; }
+    public function getReminderCount(): int { return $this->reminderCount; }
+    public function setReminderCount(int $reminderCount): static { $this->reminderCount = max(0, $reminderCount); return $this; }
+    public function incrementReminderCount(): static { $this->reminderCount = max(0, $this->reminderCount + 1); return $this; }
+    public function getNotes(): ?string { return $this->notes; }
+    public function setNotes(?string $notes): static { $this->notes = null !== $notes ? trim($notes) : null; return $this; }
+    public function getPaymentInstructions(): ?string { return $this->paymentInstructions; }
+    public function setPaymentInstructions(?string $paymentInstructions): static { $this->paymentInstructions = null !== $paymentInstructions ? trim($paymentInstructions) : null; return $this; }
+    public function getVoidedAt(): ?\DateTimeImmutable { return $this->voidedAt; }
+    public function setVoidedAt(?\DateTimeImmutable $voidedAt): static { $this->voidedAt = $voidedAt; return $this; }
+    public function getVoidReason(): ?string { return $this->voidReason; }
+    public function setVoidReason(?string $voidReason): static { $this->voidReason = null !== $voidReason ? trim($voidReason) : null; return $this; }
     public function getSubtotalCents(): int { return $this->subtotalCents; }
     public function setSubtotalCents(int $subtotalCents): static { $this->subtotalCents = $subtotalCents; return $this; }
     public function getTaxCents(): int { return $this->taxCents; }
@@ -100,4 +138,12 @@ class Invoice
     public function setTotalCents(int $totalCents): static { $this->totalCents = $totalCents; return $this; }
     public function getAmountPaidCents(): int { return $this->amountPaidCents; }
     public function setAmountPaidCents(int $amountPaidCents): static { $this->amountPaidCents = $amountPaidCents; return $this; }
+    public function getBalanceCents(): int
+    {
+        if (in_array($this->status, [self::STATUS_VOID, self::STATUS_PAID, self::STATUS_REFUNDED], true)) {
+            return 0;
+        }
+
+        return max(0, $this->totalCents - $this->amountPaidCents);
+    }
 }

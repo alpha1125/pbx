@@ -1,0 +1,132 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Vendor Portal{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-1">Vendor Portal</h1>
+            <p class="text-body-secondary mb-0">{{ tenant.name }}</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Invitation Queue</h2>
+                <span class="badge text-bg-secondary">{{ invitations|length }} invitation(s)</span>
+            </div>
+            <p class="text-body-secondary">Invitations with quote progress are shown below so vendors can track where each request sits in the pipeline.</p>
+
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>RFQ</th>
+                            <th>Customer</th>
+                            <th>Progress</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invitation in invitations %}
+                            {% set rfq = invitation.rfq %}
+                            {% set quote = invitationQuotes[invitation.id] ?? null %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ rfq.addressLine1 }}, {{ rfq.city }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.projectType ?: 'HVAC RFQ' }}</div>
+                                    {% if rfq.externalReference %}
+                                        <div class="small text-body-secondary">{{ rfq.externalReference }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div>{{ rfq.customerName ?: 'Unknown customer' }}</div>
+                                    <div class="small text-body-secondary">{{ rfq.customerPhone ?: rfq.customerEmail ?: 'No contact info' }}</div>
+                                </td>
+                                <td>
+                                    {% if invitation.createdEstimate %}
+                                        <div class="small">Estimate: <a href="{{ path('crm_estimate_show', {id: invitation.createdEstimate.id}) }}">{{ invitation.createdEstimate.status|replace({'_':' '})|title }}</a></div>
+                                        {% if quote %}
+                                            <div class="small">Quote: <a href="{{ path('crm_quote_show', {id: quote.id}) }}">{{ quote.status|replace({'_':' '})|title }}</a></div>
+                                        {% else %}
+                                            <div class="small text-body-secondary">Quote not started</div>
+                                        {% endif %}
+                                    {% else %}
+                                        <div class="small text-body-secondary">Awaiting estimate creation</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ invitation.status|replace({'_':' '})|title }}</td>
+                                <td class="text-end">
+                                    {% if invitation.status in ['sent', 'viewed'] %}
+                                        <div class="d-flex justify-content-end gap-2">
+                                            <form method="post" action="{{ path('crm_rfq_invitation_accept', {id: invitation.id}) }}">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('accept_rfq_invitation_' ~ invitation.id) }}">
+                                                <button class="btn btn-sm btn-primary" type="submit">Accept</button>
+                                            </form>
+                                            <form method="post" action="{{ path('crm_rfq_invitation_decline', {id: invitation.id}) }}">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('decline_rfq_invitation_' ~ invitation.id) }}">
+                                                <button class="btn btn-sm btn-outline-secondary" type="submit">Decline</button>
+                                            </form>
+                                        </div>
+                                        {% if quote %}
+                                            <div class="mt-2">
+                                                <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_quote_show', {id: quote.id}) }}">Open Quote</a>
+                                            </div>
+                                        {% endif %}
+                                    {% elseif invitation.createdEstimate %}
+                                        <div class="d-flex justify-content-end gap-2">
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_estimate_show', {id: invitation.createdEstimate.id}) }}">Open Estimate</a>
+                                            {% if quote %}
+                                                <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_quote_show', {id: quote.id}) }}">Open Quote</a>
+                                            {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <span class="text-body-secondary">No actions</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-body-secondary py-4">No RFQ invitations yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Vendor Notification Preferences</h2>
+                {% if membership.hasRole('ROLE_TENANT_ADMIN') %}
+                    <span class="badge text-bg-primary">Editable</span>
+                {% else %}
+                    <span class="badge text-bg-secondary">Read only</span>
+                {% endif %}
+            </div>
+
+            {% if membership.hasRole('ROLE_TENANT_ADMIN') %}
+                <form method="post" action="{{ path('crm_vendor_portal') }}" class="row g-3">
+                    <input type="hidden" name="_token" value="{{ csrf_token('crm_vendor_portal_preferences') }}">
+                    <div class="col-12 form-check">
+                        <input class="form-check-input" type="checkbox" id="rfqVendorEmailNotificationsEnabled" name="rfqVendorEmailNotificationsEnabled" value="1" {% if tenant.rfqVendorEmailNotificationsEnabled %}checked{% endif %}>
+                        <label class="form-check-label" for="rfqVendorEmailNotificationsEnabled">Enable RFQ email notifications</label>
+                    </div>
+                    <div class="col-12 form-check">
+                        <input class="form-check-input" type="checkbox" id="rfqVendorSmsNotificationsEnabled" name="rfqVendorSmsNotificationsEnabled" value="1" {% if tenant.rfqVendorSmsNotificationsEnabled %}checked{% endif %}>
+                        <label class="form-check-label" for="rfqVendorSmsNotificationsEnabled">Enable RFQ SMS notifications</label>
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-primary" type="submit">Save Preferences</button>
+                    </div>
+                </form>
+            {% else %}
+                <div class="alert alert-info mb-0">Only tenant admins can edit vendor portal notification preferences.</div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-xl-9">
+            <a class="link-secondary text-decoration-none" href="{{ rfq.id ? path('crm_rfq_show', {id: rfq.id}) : path('crm_rfq_index') }}">Back</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-1">{{ title }}</h1>
+                    <p class="text-body-secondary mb-4">Use the matching selectors to copy existing tenant property/contact details into the RFQ.</p>
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_rfq_form') }}">
+                        <div class="col-md-4">
+                            <label class="form-label" for="externalReference">External Reference</label>
+                            <input class="form-control" id="externalReference" name="externalReference" value="{{ rfq.externalReference ?: '' }}" placeholder="Optional source reference">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="propertyMatchId">Match Property</label>
+                            <select class="form-select" id="propertyMatchId" name="propertyMatchId">
+                                <option value="">No property match</option>
+                                {% for property in propertyChoices %}
+                                    <option value="{{ property.id }}" {% if selectedPropertyId is not null and selectedPropertyId == property.id ~ '' %}selected{% endif %}>{{ property.displayAddress }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="contactMatchId">Match Contact</label>
+                            <select class="form-select" id="contactMatchId" name="contactMatchId">
+                                <option value="">No contact match</option>
+                                {% for contact in contactChoices %}
+                                    <option value="{{ contact.id }}" {% if selectedContactId is not null and selectedContactId == contact.id ~ '' %}selected{% endif %}>{{ contact.displayName }}{% if contact.primaryPhone %} · {{ contact.primaryPhone }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <h2 class="h5 mt-2 mb-0">Property Details</h2>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="addressLine1">Address Line 1</label>
+                            <input class="form-control" id="addressLine1" name="addressLine1" value="{{ rfq.addressLine1 }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="addressLine2">Address Line 2</label>
+                            <input class="form-control" id="addressLine2" name="addressLine2" value="{{ rfq.addressLine2 ?: '' }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="city">City</label>
+                            <input class="form-control" id="city" name="city" value="{{ rfq.city }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="province">Province</label>
+                            <input class="form-control" id="province" name="province" value="{{ rfq.province }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="postalCode">Postal Code</label>
+                            <input class="form-control" id="postalCode" name="postalCode" value="{{ rfq.postalCode }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label" for="country">Country</label>
+                            <input class="form-control" id="country" name="country" value="{{ rfq.country }}" required>
+                        </div>
+                        <div class="col-12">
+                            <h2 class="h5 mt-2 mb-0">Customer Details</h2>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="customerName">Customer Name</label>
+                            <input class="form-control" id="customerName" name="customerName" value="{{ rfq.customerName ?: '' }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="customerPhone">Customer Phone</label>
+                            <input class="form-control" id="customerPhone" name="customerPhone" value="{{ rfq.customerPhone ?: '' }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="customerEmail">Customer Email</label>
+                            <input class="form-control" id="customerEmail" name="customerEmail" value="{{ rfq.customerEmail ?: '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="projectType">Project Type</label>
+                            <input class="form-control" id="projectType" name="projectType" value="{{ rfq.projectType ?: '' }}" placeholder="heat_pump_replacement">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="description">Description</label>
+                            <textarea class="form-control" id="description" name="description" rows="5">{{ rfq.description ?: '' }}</textarea>
+                        </div>
+                        {% include 'crm/_form_actions.html.twig' with {
+                            cancelPath: rfq.id ? path('crm_rfq_show', {id: rfq.id}) : path('crm_rfq_index'),
+                            submitLabel: 'Save RFQ'
+                        } only %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

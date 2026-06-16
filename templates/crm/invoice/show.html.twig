@@ -7,61 +7,326 @@
         <div>
             <a class="link-secondary text-decoration-none" href="{{ path('crm_property_show', {id: invoice.property.id}) }}">Back to Property</a>
             <h1 class="h2 mt-2 mb-1">{{ invoice.invoiceNumber }}</h1>
-            <p class="text-body-secondary mb-0">{{ invoice.status|replace({'_':' '})|title }}</p>
+            <p class="text-body-secondary mb-0">
+                {{ invoice.status|replace({'_':' '})|title }}
+                {% if invoice.balanceCents > 0 %}
+                    · Balance ${{ (invoice.balanceCents / 100)|number_format(2) }}
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-grid gap-2">
+            {% if invoice.contact and invoice.contact.primaryEmail %}
+                <form method="post" action="{{ path('crm_invoice_send', {id: invoice.id}) }}">
+                    <input type="hidden" name="_token" value="{{ csrf_token('invoice_send_' ~ invoice.id) }}">
+                    <button class="btn btn-primary w-100" type="submit">Email Invoice</button>
+                </form>
+                <form method="post" action="{{ path('crm_invoice_remind', {id: invoice.id}) }}">
+                    <input type="hidden" name="_token" value="{{ csrf_token('invoice_remind_' ~ invoice.id) }}">
+                    <button class="btn btn-outline-warning w-100" type="submit">Send Reminder</button>
+                </form>
+            {% endif %}
+            <a class="btn btn-outline-secondary w-100" href="{{ path('crm_invoice_print', {id: invoice.id}) }}" target="_blank" rel="noopener">Print View</a>
+            <a class="btn btn-outline-secondary w-100" href="{{ path('crm_invoice_pdf', {id: invoice.id}) }}" target="_blank" rel="noopener">PDF</a>
+            <a class="btn btn-outline-secondary w-100" href="{{ path('crm_invoice_aging') }}">Aging View</a>
         </div>
     </div>
 
     <div class="row g-4">
         <div class="col-lg-8">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm mb-4">
                 <div class="card-body">
                     <h2 class="h5">Line Items</h2>
-                    <table class="table align-middle">
-                        <thead>
-                            <tr>
-                                <th>Description</th>
-                                <th>Qty</th>
-                                <th>Unit Price</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for lineItem in lineItems %}
-                                <tr>
-                                    <td>{{ lineItem.description }}</td>
-                                    <td>{{ lineItem.quantity }}</td>
-                                    <td>${{ (lineItem.unitPriceCents / 100)|number_format(2) }}</td>
-                                    <td>${{ (lineItem.totalCents / 100)|number_format(2) }}</td>
-                                </tr>
-                            {% else %}
-                                <tr>
-                                    <td colspan="4" class="text-center text-body-secondary py-4">No line items.</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <th colspan="3" class="text-end">Total</th>
-                                <th>${{ (invoice.totalCents / 100)|number_format(2) }}</th>
-                            </tr>
-                        </tfoot>
-                    </table>
+                    <div class="d-grid gap-3">
+                        {% for lineItem in lineItems %}
+                            <div class="border rounded-3 p-3 bg-body-tertiary">
+                                <form method="post" action="{{ path('crm_invoice_update_line_item', {invoiceId: invoice.id, lineItemId: lineItem.id}) }}" class="row g-3 align-items-end">
+                                    <input type="hidden" name="_token" value="{{ csrf_token('invoice_line_item_update_' ~ lineItem.id) }}">
+                                    <div class="col-md-3">
+                                        <label class="form-label small" for="section-{{ lineItem.id }}">Section</label>
+                                        <input class="form-control form-control-sm" id="section-{{ lineItem.id }}" name="sectionLabel" value="{{ lineItem.sectionLabel ?: '' }}" placeholder="Section">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small" for="description-{{ lineItem.id }}">Description</label>
+                                        <textarea class="form-control form-control-sm" id="description-{{ lineItem.id }}" name="description" rows="2" required>{{ lineItem.description }}</textarea>
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label small" for="quantity-{{ lineItem.id }}">Qty</label>
+                                        <input class="form-control form-control-sm" id="quantity-{{ lineItem.id }}" name="quantity" value="{{ lineItem.quantity }}" required>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small" for="unitPrice-{{ lineItem.id }}">Unit Price</label>
+                                        <input class="form-control form-control-sm" id="unitPrice-{{ lineItem.id }}" name="unitPrice" value="{{ (lineItem.unitPriceCents / 100)|number_format(2, '.', '') }}" required>
+                                    </div>
+                                    <div class="col-md-2 d-grid gap-2">
+                                        <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                                    </div>
+                                </form>
+                                <div class="d-flex gap-2 mt-3">
+                                    <form method="post" action="{{ path('crm_invoice_move_line_item', {invoiceId: invoice.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_line_item_move_' ~ lineItem.id) }}">
+                                        <input type="hidden" name="direction" value="up">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">Up</button>
+                                    </form>
+                                    <form method="post" action="{{ path('crm_invoice_move_line_item', {invoiceId: invoice.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_line_item_move_' ~ lineItem.id) }}">
+                                        <input type="hidden" name="direction" value="down">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">Down</button>
+                                    </form>
+                                    <form method="post" action="{{ path('crm_invoice_delete_line_item', {invoiceId: invoice.id, lineItemId: lineItem.id}) }}">
+                                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_line_item_delete_' ~ lineItem.id) }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Delete this line item?')">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-body-secondary py-4">No line items.</div>
+                        {% endfor %}
+                        <div class="text-end fw-semibold">Subtotal: ${{ (invoice.subtotalCents / 100)|number_format(2) }} | Tax: ${{ (invoice.taxCents / 100)|number_format(2) }} | Total: ${{ (invoice.totalCents / 100)|number_format(2) }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h2 class="h5">Payments</h2>
+                    <form method="post" action="{{ path('crm_invoice_record_payment', {id: invoice.id}) }}" class="row g-3 mb-4">
+                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_payment_' ~ invoice.id) }}">
+                        <div class="col-md-3">
+                            <label class="form-label" for="paymentAmount">Amount</label>
+                            <input class="form-control" id="paymentAmount" name="amount" placeholder="0.00" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="paymentKind">Kind</label>
+                            <select class="form-select" id="paymentKind" name="kind">
+                                <option value="received">Received</option>
+                                <option value="refund">Refund</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="paymentMethod">Method</label>
+                            <input class="form-control" id="paymentMethod" name="method" placeholder="Cash, ACH, card">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="paymentDate">Date</label>
+                            <input class="form-control" id="paymentDate" name="receivedAt" type="date" value="{{ 'now'|date('Y-m-d') }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="paymentReference">Reference</label>
+                            <input class="form-control" id="paymentReference" name="reference">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="paymentMemo">Memo</label>
+                            <textarea class="form-control" id="paymentMemo" name="memo" rows="2"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary" type="submit">Record Payment</button>
+                        </div>
+                    </form>
+
+                    <div class="list-group list-group-flush">
+                        {% for allocation in paymentAllocations %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ allocation.payment.paymentNumber }}</div>
+                                        <div class="small text-body-secondary">{{ allocation.payment.kind|replace({'_':' '})|title }} · {{ allocation.payment.receivedAt|date('Y-m-d') }}</div>
+                                        <div class="small">{{ allocation.payment.method ?: 'No method' }}</div>
+                                        <div class="small">{{ allocation.payment.reference ?: '' }}</div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-semibold">${{ (allocation.amountCents / 100)|number_format(2) }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No payments recorded.</div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
         </div>
+
         <div class="col-lg-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h2 class="h5">Invoice Details</h2>
+                    <div class="mb-3">
+                        <div class="small text-body-secondary">Sent / Reminder</div>
+                        <div>{{ invoice.sentAt ? invoice.sentAt|date('Y-m-d H:i') : 'Not emailed' }}</div>
+                        <div>{{ invoice.lastReminderAt ? 'Last reminder ' ~ invoice.lastReminderAt|date('Y-m-d H:i') : 'No reminders yet' }}</div>
+                        <div>{{ invoice.reminderCount }} reminder(s)</div>
+                    </div>
+                    <form method="post" action="{{ path('crm_invoice_update_details', {id: invoice.id}) }}" class="d-grid gap-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_details_' ~ invoice.id) }}">
+                        <div>
+                            <label class="form-label" for="issuedAt">Issued At</label>
+                            <input class="form-control" id="issuedAt" name="issuedAt" type="date" value="{{ invoice.issuedAt ? invoice.issuedAt|date('Y-m-d') : '' }}">
+                        </div>
+                        <div>
+                            <label class="form-label" for="dueAt">Due At</label>
+                            <input class="form-control" id="dueAt" name="dueAt" type="date" value="{{ invoice.dueAt ? invoice.dueAt|date('Y-m-d') : '' }}">
+                        </div>
+                        <div>
+                            <label class="form-label" for="status">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                {% for status in ['draft', 'sent', 'unpaid', 'partially_paid', 'paid', 'refunded', 'overdue', 'void'] %}
+                                    <option value="{{ status }}" {% if invoice.status == status %}selected{% endif %}>{{ status|replace({'_':' '})|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="3">{{ invoice.notes ?: '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="form-label" for="paymentInstructions">Payment Instructions</label>
+                            <textarea class="form-control" id="paymentInstructions" name="paymentInstructions" rows="3">{{ invoice.paymentInstructions ?: '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="form-label" for="voidReason">Void Reason</label>
+                            <textarea class="form-control" id="voidReason" name="voidReason" rows="2">{{ invoice.voidReason ?: '' }}</textarea>
+                        </div>
+                        <button class="btn btn-outline-primary" type="submit">Save Invoice</button>
+                    </form>
+                    {% if invoice.status != 'void' %}
+                        <form method="post" action="{{ path('crm_invoice_void', {id: invoice.id}) }}" class="mt-3">
+                            <input type="hidden" name="_token" value="{{ csrf_token('invoice_void_' ~ invoice.id) }}">
+                            <button class="btn btn-outline-danger w-100" type="submit" onclick="return confirm('Void this invoice?')">Void Invoice</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+
             <div class="card shadow-sm">
                 <div class="card-body">
-                    <h2 class="h5">Update Status</h2>
-                    <form method="post" action="{{ path('crm_invoice_update_status', {id: invoice.id}) }}" class="d-grid gap-3">
-                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_status_' ~ invoice.id) }}">
-                        <select class="form-select" name="status">
-                            {% for status in ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'void'] %}
-                                <option value="{{ status }}" {% if invoice.status == status %}selected{% endif %}>{{ status|replace({'_':' '})|title }}</option>
-                            {% endfor %}
-                        </select>
-                        <button class="btn btn-outline-primary" type="submit">Save Status</button>
+                    <h2 class="h5">Add Line Item</h2>
+                    <form method="post" action="{{ path('crm_invoice_add_line_item', {id: invoice.id}) }}" class="d-grid gap-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('invoice_line_item_' ~ invoice.id) }}">
+                        <div>
+                            <label class="form-label" for="sectionLabel">Section</label>
+                            <input class="form-control" id="sectionLabel" name="sectionLabel" placeholder="Scope block or section">
+                        </div>
+                        <div>
+                            <label class="form-label" for="description">Description</label>
+                            <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+                        </div>
+                        <div>
+                            <label class="form-label" for="quantity">Quantity</label>
+                            <input class="form-control" id="quantity" name="quantity" value="1" required>
+                        </div>
+                        <div>
+                            <label class="form-label" for="unitPrice">Unit Price</label>
+                            <input class="form-control" id="unitPrice" name="unitPrice" placeholder="0.00" required>
+                        </div>
+                        <button class="btn btn-outline-primary" type="submit">Add Line Item</button>
                     </form>
+                </div>
+            </div>
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Accounting View</h2>
+                    <div class="small text-body-secondary">Balance</div>
+                    <div class="fs-4 fw-semibold">${{ (invoice.balanceCents / 100)|number_format(2) }}</div>
+                    <div class="small text-body-secondary mt-3">Issue / Due</div>
+                    <div>{{ invoice.issuedAt ? invoice.issuedAt|date('Y-m-d') : 'Unset' }} / {{ invoice.dueAt ? invoice.dueAt|date('Y-m-d') : 'Unset' }}</div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Accounting Integrations</h2>
+                    <p class="text-body-secondary mb-3">Boundary records for QuickBooks Online and Xero exports. Sync implementation comes later.</p>
+                    <div class="list-group list-group-flush">
+                        {% for record in accountingSyncRecords %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ record.providerLabel }}</div>
+                                        <div class="small text-body-secondary">{{ record.statusLabel }}</div>
+                                        <div class="small">Retries: {{ record.retryCount }}</div>
+                                        {% if record.lastAttemptAt %}
+                                            <div class="small">Last attempt {{ record.lastAttemptAt|date('Y-m-d H:i') }}</div>
+                                        {% endif %}
+                                        {% if record.nextRetryAt %}
+                                            <div class="small">Next retry {{ record.nextRetryAt|date('Y-m-d H:i') }}</div>
+                                        {% endif %}
+                                        <div class="small">{{ record.externalId ?: 'No external ID yet' }}</div>
+                                        {% if record.externalNumber %}
+                                            <div class="small">External #{{ record.externalNumber }}</div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small text-body-secondary">Exported</div>
+                                        <div>{{ record.exportedAt ? record.exportedAt|date('Y-m-d H:i') : 'Not exported' }}</div>
+                                    </div>
+                                </div>
+                                {% if record.errorMessage %}
+                                    <div class="alert alert-danger mt-3 mb-0 py-2">
+                                        <div class="small fw-semibold">Last error</div>
+                                        <div class="small">{{ record.errorMessage }}</div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No accounting export records yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Export Log</h2>
+                    <p class="text-body-secondary mb-3">Audit trail for accounting export attempts, errors, and retries.</p>
+                    <div class="list-group list-group-flush">
+                        {% for log in accountingExportLogs %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ log.action }}</div>
+                                        <div class="small text-body-secondary">{{ log.createdAt|date('Y-m-d H:i') }}</div>
+                                        {% if log.afterData.provider is defined %}
+                                            <div class="small">Provider: {{ log.afterData.provider }}</div>
+                                        {% endif %}
+                                        {% if log.afterData.status is defined %}
+                                            <div class="small">Status: {{ log.afterData.status }}</div>
+                                        {% endif %}
+                                        {% if log.afterData.externalId is defined and log.afterData.externalId %}
+                                            <div class="small">External ID: {{ log.afterData.externalId }}</div>
+                                        {% endif %}
+                                        {% if log.afterData.nextRetryAt is defined and log.afterData.nextRetryAt %}
+                                            <div class="small">Next retry: {{ log.afterData.nextRetryAt|date('Y-m-d H:i') }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% if log.afterData.errorMessage is defined and log.afterData.errorMessage %}
+                                    <div class="alert alert-danger mt-3 mb-0 py-2">
+                                        <div class="small fw-semibold">Error</div>
+                                        <div class="small">{{ log.afterData.errorMessage }}</div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No export log entries yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Export Payloads</h2>
+                    <p class="text-body-secondary mb-3">Structured payload previews for QuickBooks Online and Xero.</p>
+                    <div class="row g-3">
+                        {% for key, payload in accountingExportPayloads %}
+                            <div class="col-12">
+                                <div class="border rounded-3 p-3 bg-body-tertiary">
+                                    <div class="fw-semibold mb-2">{{ key == 'quickbooksOnline' ? 'QuickBooks Online' : 'Xero' }}</div>
+                                    <pre class="small mb-0 overflow-auto">{{ payload|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
         </div>

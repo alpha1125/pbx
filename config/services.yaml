@@ -56,6 +56,7 @@ services:
         resource: '../src/'
 
     App\Service\CurrentTenantProviderInterface: '@App\Service\CurrentTenantProvider'
+    App\Service\InvoiceTimelineProjectorInterface: '@App\Service\CommunicationTimelineProjector'
 
     App\Service\TelnyxCallControlService:
         arguments:

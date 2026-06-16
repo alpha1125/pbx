@@ -72,6 +72,10 @@ class RfqAcceptanceService
                 $contactWasCreated = true;
             }
 
+            if ($propertyWasCreated || $contactWasCreated) {
+                $this->entityManager->flush();
+            }
+
             $propertyContact = $this->propertyContactRepository->findOneByTenantPropertyAndContact($tenant, $property, $contact);
             if (null === $propertyContact) {
                 $propertyContact = (new PropertyContact($tenant, $property, $contact))
