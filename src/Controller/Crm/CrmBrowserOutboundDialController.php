@@ -15,6 +15,7 @@ use App\Repository\PropertyRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CallEventEngineService;
+use App\Service\BrowserSoftphoneSessionService;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\TelnyxCallControlService;
 use App\Service\TenantMembershipAccessService;
@@ -59,8 +60,7 @@ final class CrmBrowserOutboundDialController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_dial_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->json(['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -87,29 +87,23 @@ final class CrmBrowserOutboundDialController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Call session does not belong to the current tenant.'], Response::HTTP_FORBIDDEN);
         }
 
-        // Find the browser softphone session for this call session
-        try {
-            $browserSession = $browserSoftphoneSessions->findByProviderSessionId(trim($providerSessionId));
-        } catch (\RuntimeException $exception) {
-            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
-        }
-
-        // Validate the browser softphone session belongs to the current tenant and user is logged in
         $user = $this->getUser();
         if (null === $user) {
             return $this->json(['ok' => false, 'error' => 'You must be logged in to place a browser call.'], Response::HTTP_FORBIDDEN);
         }
-
-        if ($browserSession->getTenant()->getId() !== $tenant->getId()) {
-            return $this->json(['ok' => false, 'error' => 'Browser session does not belong to the current tenant.'], Response::HTTP_FORBIDDEN);
+        if (!$user instanceof User) {
+            return $this->json(['ok' => false, 'error' => 'You must be logged in to place a browser call.'], Response::HTTP_FORBIDDEN);
         }
 
-        if (null === $user->getId() || null === $browserSession->getUser()->getId() || $user->getId() !== $browserSession->getUser()->getId()) {
-            return $this->json(['ok' => false, 'error' => 'Browser session was not allocated to the current user.'], Response::HTTP_FORBIDDEN);
+        // Find the browser softphone session for this call session, scoped to the current tenant and user.
+        try {
+            $browserSession = $browserSoftphoneSessions->findByProviderSessionId($tenant, $user, trim($providerSessionId));
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
         }
 
         // Validate the Telnyx WebRTC connection is established
-        if (CallSession::CALL_STATE_CONNECTED !== $browserSession->getConnectionState()) {
+        if (\App\Entity\BrowserSoftphoneSession::CONNECTION_STATE_READY !== $browserSession->getConnectionState()) {
             return $this->json(['ok' => false, 'error' => 'Browser softphone must be connected before dialing.'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -127,6 +121,10 @@ final class CrmBrowserOutboundDialController extends AbstractController
         // Prevent dial on terminal call states
         if (in_array($callSession->getCallState(), [CallSession::CALL_STATE_COMPLETED, CallSession::CALL_STATE_FAILED], true)) {
             return $this->json(['ok' => false, 'error' => 'Call session has already ended.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        if (CallSession::CALL_STATE_INITIATED !== $callSession->getCallState()) {
+            return $this->json(['ok' => false, 'error' => 'Browser call is already in progress.'], Response::HTTP_BAD_REQUEST);
         }
 
         // Initiate outbound PSTN leg via Telnyx using the browser's active WebRTC connection
@@ -154,12 +152,15 @@ final class CrmBrowserOutboundDialController extends AbstractController
             $em->persist($callSession);
             $em->flush();
 
-            // Push event to call event engine for timeline and client updates
-            $eventEngine->pushEvent(trim($providerSessionId), 'call.initiated', [
-                'callMode' => CallSession::CALL_MODE_BROWSER,
-                'destinationNumber' => $approvedDestination,
-                'providerSessionId' => $callSession->getProviderSessionId(),
-            ]);
+            // Timeline updates are best-effort here; Browser Call event reconciliation
+            // is handled elsewhere in the BrowserSoftphoneSession pipeline.
+            if (method_exists($eventEngine, 'pushEvent')) {
+                $eventEngine->pushEvent(trim($providerSessionId), 'call.initiated', [
+                    'callMode' => CallSession::CALL_MODE_BROWSER,
+                    'destinationNumber' => $approvedDestination,
+                    'providerSessionId' => $callSession->getProviderSessionId(),
+                ]);
+            }
 
             // Audit log the dial event
             $auditLogger->log(
@@ -182,6 +183,7 @@ final class CrmBrowserOutboundDialController extends AbstractController
                     'callSessionId' => $callSession->getId(),
                 ],
             );
+            $em->flush();
 
             return $this->json([
                 'ok' => true,
@@ -219,5 +221,10 @@ final class CrmBrowserOutboundDialController extends AbstractController
                 'error' => 'Failed to initiate outbound call: '.$exception->getMessage(),
             ], Response::HTTP_BAD_REQUEST);
         }
+    }
+
+    private function browserCallTokenId(int $propertyId, int $contactId): string
+    {
+        return sprintf('crm_browser_call_%d_%d', $propertyId, $contactId);
     }
 }

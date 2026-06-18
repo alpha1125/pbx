@@ -29,6 +29,11 @@ export default class extends Controller {
     };
 
     connect() {
+        console.debug('[browser-softphone] connected', {
+            element: this.element,
+            propertyId: this.propertyIdValue ?? null,
+            contactId: this.contactIdValue ?? null,
+        });
         this.eventStream = null;
         this.telnyxClient = null;
         this.activeCall = null;
@@ -43,10 +48,18 @@ export default class extends Controller {
         this.keypadOpen = false;
         this.recording = false;
         this.activeDigits = '';
+        this.pendingLaunchContactId = null;
+        this.pendingLaunchPrimaryPhone = null;
+        this.launchHandler = this.handleExternalLaunch.bind(this);
+        window.addEventListener('browser-softphone:launch', this.launchHandler);
         this.renderIdleState();
     }
 
     disconnect() {
+        if (this.launchHandler) {
+            window.removeEventListener('browser-softphone:launch', this.launchHandler);
+            this.launchHandler = null;
+        }
         this.teardownStream();
         this.disconnectTelnyx();
         this.stopLocalMedia();
@@ -57,17 +70,33 @@ export default class extends Controller {
 
     async startCall(event) {
         event?.preventDefault();
+        console.debug('[browser-softphone] startCall invoked', {
+            eventType: event?.type ?? null,
+            triggerContactId: event?.currentTarget?.dataset?.contactId ?? null,
+            triggerPrimaryPhone: event?.currentTarget?.dataset?.primaryPhone ?? null,
+            pendingLaunchContactId: this.pendingLaunchContactId,
+            pendingLaunchPrimaryPhone: this.pendingLaunchPrimaryPhone,
+            contactTarget: this.contactTarget?.value ?? null,
+            primaryPhoneTarget: this.primaryPhoneTarget?.value ?? null,
+        });
 
-        const contactId = this.contactTarget?.value;
-        const primaryPhone = this.primaryPhoneTarget?.value;
+        const contactId = event?.currentTarget?.dataset?.contactId
+            ?? this.pendingLaunchContactId
+            ?? this.contactTarget?.value;
+        const primaryPhone = event?.currentTarget?.dataset?.primaryPhone
+            ?? this.pendingLaunchPrimaryPhone
+            ?? this.primaryPhoneTarget?.value;
         if (!contactId || !primaryPhone) {
             this.setStatus('Select a contact with a phone number first.');
             return;
         }
 
+        this.openKeypad();
+        console.debug('[browser-softphone] keypad opened for call start');
+
         // If already connected, trigger outbound dial via server
         if (this.connected && null !== this.providerSessionId) {
-            await this.dialViaServer();
+            await this.placeOutboundCall();
             return;
         }
 
@@ -77,7 +106,7 @@ export default class extends Controller {
 
         try {
             await this.requestMicrophone();
-            const preparePayload = await this.postJson(this.browserCallPrepareUrlValue, {
+            const preparePayload = await this.postForm(this.browserCallPrepareUrlValue, {
                 _token: this.csrfTokenValue,
             });
             if (!preparePayload.ok) {
@@ -131,6 +160,7 @@ export default class extends Controller {
             this.setBusy(false);
             this.stopLocalMedia();
             this.disconnectTelnyx();
+            this.closeKeypad();
         }
     }
 
@@ -152,9 +182,9 @@ export default class extends Controller {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 },
-                body: JSON.stringify({
+                body: new URLSearchParams({
                     _token: this.csrfTokenValue,
                     providerSessionId: this.providerSessionId,
                     action: this.muted ? 'mute' : 'unmute',
@@ -175,6 +205,18 @@ export default class extends Controller {
         this.keypadTarget.hidden = !this.keypadOpen;
         this.keypadButtonTarget.classList.toggle('active', this.keypadOpen);
         this.setStatus(this.keypadOpen ? 'Keypad opened.' : 'Keypad closed.');
+    }
+
+    openKeypad() {
+        this.keypadOpen = true;
+        this.keypadTarget.hidden = false;
+        this.keypadButtonTarget.classList.add('active');
+    }
+
+    closeKeypad() {
+        this.keypadOpen = false;
+        this.keypadTarget.hidden = true;
+        this.keypadButtonTarget.classList.remove('active');
     }
 
     async pressDigit(event) {
@@ -199,9 +241,9 @@ export default class extends Controller {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     },
-                    body: JSON.stringify({
+                    body: new URLSearchParams({
                         _token: this.csrfTokenValue,
                         providerSessionId: this.providerSessionId,
                         digits: digit,
@@ -236,9 +278,9 @@ export default class extends Controller {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     },
-                    body: JSON.stringify({
+                    body: new URLSearchParams({
                         _token: this.csrfTokenValue,
                         providerSessionId: this.providerSessionId,
                         action: this.recording ? 'start' : 'stop',
@@ -276,9 +318,9 @@ export default class extends Controller {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     },
-                    body: JSON.stringify({
+                    body: new URLSearchParams({
                         _token: this.csrfTokenValue,
                         providerSessionId: this.providerSessionId,
                     }),
@@ -309,13 +351,20 @@ export default class extends Controller {
 
     async requestMicrophone() {
         if (!navigator.mediaDevices?.getUserMedia) {
+            console.debug('[browser-softphone] microphone API unavailable');
             throw new Error('Microphone access is not available in this browser.');
         }
 
         try {
+            console.debug('[browser-softphone] requesting microphone access');
             this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            console.debug('[browser-softphone] microphone access granted');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Microphone access was denied.';
+            console.debug('[browser-softphone] microphone access failed', {
+                message,
+                error,
+            });
             await this.reportConnectionEvent('mic_denied', {
                 browserSessionToken: this.browserSessionToken,
                 message,
@@ -338,7 +387,7 @@ export default class extends Controller {
                 this.setConnectionState('Connected to Telnyx.');
                 this.setStatus('Browser softphone connected. Click "Place Browser Call" to dial.');
 
-                // Capture telnyx connection ID from the SDK's active WebSocket connection
+                // Capture the SDK connection/session id separately from any call identifiers.
                 const telnyxConnectionId = (this.telnyxClient?.connection?.id ?? null);
 
                 await this.reportConnectionEvent('sdk_ready', {
@@ -346,7 +395,7 @@ export default class extends Controller {
                     telnyxConnectionId: telnyxConnectionId,
                 });
 
-                // Re-enable the call button so the CSR can initiate dialing server-side (9I)
+                // Re-enable the call button so the CSR can place the outbound SDK call.
                 this.callButtonTarget.disabled = false;
                 this.callButtonTarget.textContent = 'Place Browser Call';
             } catch (error) {
@@ -392,55 +441,6 @@ export default class extends Controller {
                 });
             }
         });
-    }
-
-    // Phase 9I: Initiate outbound dial via server-side Telnyx API call.
-    // The browser softphone must be connected (telnyx.ready has fired) before this is called.
-    async dialViaServer() {
-        if (!this.providerSessionId) {
-            throw new Error('No active call session to place the outbound dial.');
-        }
-
-        if (!this.approvedDestinationNumber) {
-            throw new Error('Approved destination number is missing.');
-        }
-
-        this.setCallState('Dialing');
-        this.setStatus(`Requesting outbound call to ${this.approvedDestinationNumber}...`);
-        this.callButtonTarget.disabled = true;
-        this.callButtonTarget.textContent = 'Dialing...';
-
-        try {
-            const dialUrl = `/crm/properties/${this.propertyIdValue}/contacts/${this.contactIdValue}/browser-call/dial`;
-            const payload = {
-                _token: this.csrfTokenValue,
-                providerSessionId: this.providerSessionId,
-            };
-            const response = await this.postJson(dialUrl, payload);
-
-            if (!response.ok) {
-                throw new Error(response.error ?? 'Outbound call could not be initiated.');
-            }
-
-            // Update local state from server response
-            this.setCallState('Ringing');
-            this.setStatus('Call is ringing...');
-
-            return response;
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Outbound dial failed.';
-            this.setCallState('Failed');
-            this.setStatus(message);
-            this.callButtonTarget.disabled = false;
-            this.callButtonTarget.textContent = 'Place Browser Call';
-            await this.reportConnectionEvent('call.failed', {
-                browserSessionToken: this.browserSessionToken,
-                message,
-                errorCode: error instanceof Error ? error.name : null,
-                destinationNumber: this.approvedDestinationNumber,
-            });
-            throw new Error(message);
-        }
     }
 
     async reportConnectionEvent(event, payload = {}) {
@@ -500,6 +500,8 @@ export default class extends Controller {
 
         this.setCallState('Dialing');
         this.setStatus(`Dialing ${this.approvedDestinationNumber}...`);
+        this.callButtonTarget.disabled = true;
+        this.callButtonTarget.textContent = 'Dialing...';
         this.activeCall = this.telnyxClient.newCall({
             destinationNumber: this.approvedDestinationNumber,
             audio: true,
@@ -558,12 +560,16 @@ export default class extends Controller {
         }
 
         if ('active' === state) {
+            const telnyxCallControlId = notification?.call?.telnyxIDs?.telnyxCallControlId
+                ?? call?.telnyxIDs?.telnyxCallControlId
+                ?? null;
             if (!this.timerHandle) {
                 this.timerStartedAt = new Date();
                 this.startTimer();
             }
             this.setCallState('Connected');
             this.setStatus('Browser call connected.');
+            this.openKeypad();
             this.hangupButtonTarget.disabled = false;
             // Phase 9J: enable mute, keypad, and recording controls once call is connected.
             this.muteButtonTarget.disabled = false;
@@ -572,6 +578,7 @@ export default class extends Controller {
             await this.reportCallEvent('call.active', {
                 browserSessionToken: this.browserSessionToken,
                 callId,
+                telnyxCallControlId,
                 destinationNumber,
                 meta: {
                     direction: call.direction ?? 'outbound',
@@ -587,6 +594,7 @@ export default class extends Controller {
             this.stopTimer();
             this.teardownCall();
             this.connected = false;
+            this.closeKeypad();
             this.callButtonTarget.disabled = false;
             this.callButtonTarget.textContent = 'Place Browser Call';
             await this.reportCallEvent('call.hangup', {
@@ -634,6 +642,38 @@ export default class extends Controller {
         }
 
         if (!response.ok) {
+            throw new Error(json.error ?? 'Request failed.');
+        }
+
+        return json;
+    }
+
+    async postForm(url, payload) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            body: new URLSearchParams(payload),
+        });
+
+        const text = await response.text();
+        let json = {};
+        try {
+            json = '' !== text ? JSON.parse(text) : {};
+        } catch {
+            json = {};
+        }
+
+        if (!response.ok) {
+            console.error('[browser-softphone] form request failed', {
+                url,
+                status: response.status,
+                statusText: response.statusText,
+                responseText: text,
+                responseJson: json,
+            });
             throw new Error(json.error ?? 'Request failed.');
         }
 
@@ -703,6 +743,7 @@ export default class extends Controller {
         this.muteButtonTarget.disabled = true;
         this.keypadButtonTarget.disabled = true;
         this.recordingButtonTarget.disabled = true;
+        this.closeKeypad();
     }
 
     stopLocalMedia() {
@@ -794,7 +835,7 @@ export default class extends Controller {
         this.hangupButtonTarget.disabled = true;
         this.muteButtonTarget.disabled = true;
         this.keypadButtonTarget.disabled = true;
-        this.keypadTarget.hidden = true;
+        this.closeKeypad();
         this.timerTarget.textContent = '00:00';
         this.statusTarget.textContent = 'Ready to connect the browser softphone.';
         this.connectionStateTarget.textContent = 'Disconnected';
@@ -802,5 +843,25 @@ export default class extends Controller {
         this.recordingStateTarget.textContent = 'Recording inactive';
         this.callButtonTarget.disabled = false;
         this.callButtonTarget.textContent = 'Place Browser Call';
+    }
+
+    handleExternalLaunch(event) {
+        const detail = event?.detail ?? {};
+        console.debug('[browser-softphone] external launch received', detail);
+        if (detail.propertyId && String(detail.propertyId) !== String(this.propertyIdValue)) {
+            console.debug('[browser-softphone] external launch ignored for different property', {
+                detailPropertyId: detail.propertyId,
+                controllerPropertyId: this.propertyIdValue,
+            });
+            return;
+        }
+        this.pendingLaunchContactId = detail.contactId ?? null;
+        this.pendingLaunchPrimaryPhone = detail.primaryPhone ?? null;
+        console.debug('[browser-softphone] external launch accepted', {
+            pendingLaunchContactId: this.pendingLaunchContactId,
+            pendingLaunchPrimaryPhone: this.pendingLaunchPrimaryPhone,
+        });
+
+        this.startCall();
     }
 }

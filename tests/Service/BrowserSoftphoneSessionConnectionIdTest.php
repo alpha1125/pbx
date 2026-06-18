@@ -14,9 +14,10 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Phase 9I.1 — Persist Telnyx WebRTC Connection ID.
- * Service test proving BrowserSoftphoneSession.telnyxConnectionId
- * field behavior (setter/getter/trim/null) without requiring a database.
+ * Phase 9I.1/9I.3 — Persist Telnyx WebRTC connection id and browser call control id.
+ * Service test proving BrowserSoftphoneSession.telnyxConnectionId and
+ * BrowserSoftphoneSession.telnyxCallControlId field behavior
+ * (setter/getter/trim/null) without requiring a database.
  */
 final class BrowserSoftphoneSessionConnectionIdTest extends TestCase
 {
@@ -84,5 +85,20 @@ final class BrowserSoftphoneSessionConnectionIdTest extends TestCase
         $session = $this->seedBrowserSession();
         $session->setTelnyxConnectionId(null);
         self::assertNull($session->getTelnyxConnectionId());
+    }
+
+    #[Test]
+    public function callControlIdFieldDefaultsToNull(): void
+    {
+        $session = $this->seedBrowserSession();
+        self::assertNull($session->getTelnyxCallControlId());
+    }
+
+    #[Test]
+    public function callControlIdSetterTrimsWhitespace(): void
+    {
+        $session = $this->seedBrowserSession();
+        $session->setTelnyxCallControlId('  call-control-123  ');
+        self::assertSame('call-control-123', $session->getTelnyxCallControlId());
     }
 }

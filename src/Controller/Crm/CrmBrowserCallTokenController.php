@@ -49,8 +49,7 @@ final class CrmBrowserCallTokenController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_prepare_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->respond($request, $propertyId, ['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -100,5 +99,10 @@ final class CrmBrowserCallTokenController extends AbstractController
         $this->addFlash($payload['ok'] ? 'success' : 'error', (string) ($payload['ok'] ? 'Browser call prepared.' : ($payload['error'] ?? 'Call could not be prepared.')));
 
         return $this->redirectToRoute('crm_property_show', ['id' => $propertyId]);
+    }
+
+    private function browserCallTokenId(int $propertyId, int $contactId): string
+    {
+        return sprintf('crm_browser_call_%d_%d', $propertyId, $contactId);
     }
 }

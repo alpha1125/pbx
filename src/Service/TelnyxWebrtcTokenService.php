@@ -7,17 +7,21 @@ namespace App\Service;
 use App\Entity\CallSession;
 use App\Entity\Tenant;
 use App\Entity\User;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class TelnyxWebrtcTokenService
 {
     private const string BASE_URL = 'https://api.telnyx.com/v2';
+    private const string CACHE_KEY_PREFIX = 'telnyx_webrtc_telephony_credential_id:';
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
+        private readonly CacheItemPoolInterface $cache,
         private readonly string $apiKey,
+        private readonly string $connectionId,
         private readonly string $telephonyCredentialId,
     ) {
     }
@@ -31,37 +35,179 @@ class TelnyxWebrtcTokenService
             throw new \RuntimeException('TELNYX_API_KEY is missing.');
         }
 
-        if ('' === trim($this->telephonyCredentialId)) {
-            throw new \RuntimeException('TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID is missing.');
-        }
+        $telephonyCredentialId = $this->resolveTelephonyCredentialId($tenant);
 
         $this->logger->info('Issuing Telnyx WebRTC token for browser call.', [
             'tenant_id' => $tenant->getId(),
             'user_id' => $user->getId(),
             'call_session_id' => $callSession->getId(),
             'provider_session_id' => $callSession->getProviderSessionId(),
+            'telephony_credential_id' => $telephonyCredentialId,
         ]);
 
-        $response = $this->httpClient->request('POST', sprintf('%s/telephony_credentials/%s/token', self::BASE_URL, rawurlencode($this->telephonyCredentialId)), [
+        $token = $this->generateToken($telephonyCredentialId);
+        $expiresAt = $this->extractExpiry($token);
+
+        return [
+            'token' => $token,
+            'expiresAt' => $expiresAt,
+            'rawResponse' => $token,
+        ];
+    }
+
+    public function generateToken(string $telephonyCredentialId): string
+    {
+        if ('' === trim($this->apiKey)) {
+            throw new \RuntimeException('TELNYX_API_KEY is missing.');
+        }
+
+        $response = $this->httpClient->request('POST', sprintf('%s/telephony_credentials/%s/token', self::BASE_URL, rawurlencode(trim($telephonyCredentialId))), [
             'headers' => [
                 'Authorization' => 'Bearer '.$this->apiKey,
                 'Accept' => 'application/json, text/plain;q=0.9',
             ],
         ]);
 
+        $statusCode = $response->getStatusCode();
         $content = trim($response->getContent(false));
+        if ($statusCode >= 400) {
+            throw new \RuntimeException(sprintf(
+                'Telnyx WebRTC token request failed with HTTP %d%s',
+                $statusCode,
+                '' !== $content ? ': '.$content : '',
+            ));
+        }
+
         if ('' === $content) {
             throw new \RuntimeException('Telnyx WebRTC token response was empty.');
         }
 
-        $token = $this->extractToken($content);
-        $expiresAt = $this->extractExpiry($token);
+        return $this->extractToken($content);
+    }
 
-        return [
-            'token' => $token,
-            'expiresAt' => $expiresAt,
-            'rawResponse' => $content,
-        ];
+    private function resolveTelephonyCredentialId(Tenant $tenant): string
+    {
+        $configuredCredentialId = trim($this->telephonyCredentialId);
+        if ('' !== $configuredCredentialId) {
+            return $configuredCredentialId;
+        }
+
+        $cacheKey = self::CACHE_KEY_PREFIX.sha1($this->connectionId);
+        $cached = $this->cache->getItem($cacheKey);
+        if ($cached->isHit()) {
+            $credentialId = trim((string) $cached->get());
+            if ('' !== $credentialId) {
+                return $credentialId;
+            }
+        }
+
+        if ('' === trim($this->connectionId)) {
+            throw new \RuntimeException('TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID is missing and TELNYX_CONNECTION_ID is missing, so a credential cannot be resolved.');
+        }
+
+        $resourceId = 'connection:'.trim($this->connectionId);
+        $existingCredentialId = $this->findExistingCredentialId($resourceId);
+        if (null !== $existingCredentialId) {
+            $this->storeCredentialId($cacheKey, $existingCredentialId);
+
+            return $existingCredentialId;
+        }
+
+        throw new \RuntimeException(sprintf(
+            'TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID is missing and Telnyx did not return an existing telephony credential for connection "%s". Provision a WebRTC telephony credential in Telnyx and set TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID.',
+            trim($this->connectionId),
+        ));
+    }
+
+    private function findExistingCredentialId(string $resourceId): ?string
+    {
+        $response = $this->httpClient->request('GET', self::BASE_URL.'/telephony_credentials', [
+            'headers' => [
+                'Authorization' => 'Bearer '.$this->apiKey,
+                'Accept' => 'application/json',
+            ],
+            'query' => [
+                'filter' => [
+                    'resource_id' => $resourceId,
+                    'resourceID' => $resourceId,
+                ],
+                'page' => [
+                    'size' => 250,
+                ],
+            ],
+        ]);
+
+        $content = trim($response->getContent(false));
+        if ('' === $content) {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode($content, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        foreach ((array) ($decoded['data'] ?? []) as $credential) {
+            $credentialResourceId = $this->extractStringValue($credential, ['resource_id', 'resourceID', 'attributes.resource_id', 'attributes.resourceID']);
+            $credentialId = $this->extractStringValue($credential, ['id', 'attributes.id']);
+
+            if (null !== $credentialResourceId && $resourceId === $credentialResourceId && null !== $credentialId) {
+                return $credentialId;
+            }
+        }
+
+        return null;
+    }
+
+    private function storeCredentialId(string $cacheKey, string $credentialId): void
+    {
+        $item = $this->cache->getItem($cacheKey);
+        $item
+            ->set($credentialId)
+            ->expiresAfter(86400);
+        $this->cache->save($item);
+    }
+
+    /**
+     * @param list<string> $paths
+     */
+    private function extractStringValue(array $payload, array $paths): ?string
+    {
+        foreach ($paths as $path) {
+            $value = $this->readPath($payload, $path);
+            if (is_string($value)) {
+                $value = trim($value);
+                if ('' !== $value) {
+                    return $value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>|list<mixed> $payload
+     */
+    private function readPath(array $payload, string $path): mixed
+    {
+        $segments = explode('.', $path);
+        $current = $payload;
+
+        foreach ($segments as $segment) {
+            if (!is_array($current)) {
+                return null;
+            }
+
+            if (!array_key_exists($segment, $current)) {
+                return null;
+            }
+
+            $current = $current[$segment];
+        }
+
+        return $current;
     }
 
     private function extractToken(string $content): string

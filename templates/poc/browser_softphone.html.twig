@@ -1,0 +1,17 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Browser Softphone POC{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-12 col-xl-10">
+            <div
+                id="browser-softphone-root"
+                data-token-url="{{ path('poc_browser_softphone_token') }}"
+                data-caller-number="{{ fromNumber }}"
+                data-destination-number="{{ destinationNumber }}"
+            ></div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

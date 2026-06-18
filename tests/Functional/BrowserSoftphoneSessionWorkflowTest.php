@@ -8,6 +8,8 @@ use App\Entity\CallSession;
 use App\Entity\Tenant;
 use App\Entity\User;
 use App\Entity\UserTenantMembership;
+use App\Repository\TenantRepository;
+use App\Service\CurrentTenantProviderInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -17,6 +19,7 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
 {
     private KernelBrowser $client;
     private EntityManagerInterface $entityManager;
+    private ?int $currentTenantId = null;
 
     protected function setUp(): void
     {
@@ -24,6 +27,33 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
         $this->client = self::createClient();
         $this->client->disableReboot();
         $this->entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        static::getContainer()->set(CurrentTenantProviderInterface::class, new class($this) implements CurrentTenantProviderInterface {
+            public function __construct(private readonly BrowserSoftphoneSessionWorkflowTest $test)
+            {
+            }
+
+            public function getCurrentTenant(): ?Tenant
+            {
+                return $this->test->getCurrentTenant();
+            }
+
+            public function requireCurrentTenant(): Tenant
+            {
+                return $this->test->getCurrentTenant() ?? throw new \RuntimeException('No tenant selected for test.');
+            }
+
+            public function getAvailableTenants(): array
+            {
+                return null !== $this->test->getCurrentTenant() ? [$this->test->getCurrentTenant()] : [];
+            }
+
+            public function selectTenant(User $user, int $tenantId): bool
+            {
+                $tenant = $this->test->getCurrentTenant();
+
+                return null !== $tenant && null !== $tenant->getId() && $tenantId === $tenant->getId();
+            }
+        });
         $this->truncateDatabase();
         $this->entityManager->clear();
     }
@@ -91,6 +121,9 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
     public function browserSessionCallEventsArePersistedAndRejectStaleIdentifiers(): void
     {
         $data = $this->seedTenantData();
+        $data['callSession']->setClientPhoneNumber('+14165550123');
+        $this->entityManager->persist($data['callSession']);
+        $this->entityManager->flush();
         $this->client->loginUser($data['user']);
         $this->selectTenant($data['tenant']);
         $this->client->request('POST', sprintf('/api/calls/%s/browser-session', $data['callSession']->getProviderSessionId()));
@@ -128,6 +161,41 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
         $failurePayload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
         self::assertFalse($failurePayload['ok']);
         self::assertStringContainsString('approved destination', strtolower((string) $failurePayload['error']));
+    }
+
+    #[Test]
+    public function browserSessionCallActivePersistsTelnyxCallControlId(): void
+    {
+        $data = $this->seedTenantData();
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf('/api/calls/%s/browser-session', $data['callSession']->getProviderSessionId()));
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $telnyxCallControlId = 'v3:call-control-id-9i3-test';
+        $this->client->request(
+            'POST',
+            sprintf('/api/browser-softphone-sessions/%s/events', $payload['browserSessionToken']),
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode([
+                'event' => 'call.active',
+                'callId' => 'call-id-9i3',
+                'telnyxCallControlId' => $telnyxCallControlId,
+                'destinationNumber' => $data['callSession']->getClientPhoneNumber(),
+            ], JSON_THROW_ON_ERROR),
+        );
+
+        self::assertResponseIsSuccessful();
+        $eventPayload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($eventPayload['ok']);
+        self::assertSame($telnyxCallControlId, $eventPayload['telnyxCallControlId']);
+        self::assertSame('connected', $eventPayload['callState']);
+
+        /** @var \App\Repository\BrowserSoftphoneSessionRepository $repo */
+        $repo = static::getContainer()->get(\App\Repository\BrowserSoftphoneSessionRepository::class);
+        $stored = $repo->findOneBy(['sessionToken' => $payload['browserSessionToken']]);
+        self::assertInstanceOf(\App\Entity\BrowserSoftphoneSession::class, $stored);
+        self::assertSame($telnyxCallControlId, $stored->getTelnyxCallControlId());
     }
 
     /**
@@ -172,10 +240,19 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
 
     private function selectTenant(Tenant $tenant): void
     {
-        $this->client->request('GET', '/crm');
-        $session = $this->client->getRequest()->getSession();
-        $session->set('crm.current_tenant_id', $tenant->getId());
-        $session->save();
+        $this->currentTenantId = $tenant->getId();
+    }
+
+    public function getCurrentTenant(): ?Tenant
+    {
+        if (null === $this->currentTenantId) {
+            return null;
+        }
+
+        /** @var TenantRepository $tenantRepository */
+        $tenantRepository = static::getContainer()->get(TenantRepository::class);
+
+        return $tenantRepository->find($this->currentTenantId);
     }
 
     private function truncateDatabase(): void

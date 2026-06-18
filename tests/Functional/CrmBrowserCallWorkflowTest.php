@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Tests\Functional;
 
 use App\Entity\CallSession;
+use App\Entity\ClickToCallRequest;
 use App\Entity\Contact;
 use App\Entity\Property;
 use App\Entity\PropertyContact;
 use App\Entity\Tenant;
 use App\Entity\User;
 use App\Entity\UserTenantMembership;
+use App\Service\ClickToCallService;
 use App\Service\TelnyxCallControlService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
@@ -18,6 +20,7 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use App\Service\CurrentTenantProviderInterface;
 use Psr\Log\NullLogger;
 
 final class CrmBrowserCallWorkflowTest extends WebTestCase
@@ -48,11 +51,13 @@ final class CrmBrowserCallWorkflowTest extends WebTestCase
             ),
         );
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), ['_token' => ''], [], ['HTTP_ACCEPT' => 'application/json']);
+        ), ['_token' => $token], [], ['HTTP_ACCEPT' => 'application/json']);
 
         self::assertResponseIsSuccessful();
         self::assertResponseFormatSame('json');
@@ -67,6 +72,42 @@ final class CrmBrowserCallWorkflowTest extends WebTestCase
         self::assertNotSame('', $payload['browserSessionToken']);
     }
 
+    #[Test]
+    public function browserCallRejectsMissingCsrfToken(): void
+    {
+        $data = $this->seedTenantData();
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(403);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($payload['ok']);
+        self::assertSame('Invalid CSRF token.', $payload['error']);
+    }
+
+    #[Test]
+    public function browserCallRejectsInvalidCsrfToken(): void
+    {
+        $data = $this->seedTenantData();
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), ['_token' => 'not-the-token'], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(403);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($payload['ok']);
+        self::assertSame('Invalid CSRF token.', $payload['error']);
+    }
+
     /**
      * @return array{tenant:Tenant,user:User,property:Property,contact:Contact}
      */
@@ -76,6 +117,7 @@ final class CrmBrowserCallWorkflowTest extends WebTestCase
         $user = (new User())
             ->setEmail('csr@example.com')
             ->setPassword('unused')
+            ->setCellPhone('+14165550111')
             ->setRoles(['ROLE_USER']);
         $property = new Property($tenant, '10 Heat Street', 'Toronto', 'ON', 'M1M1M1');
         $contact = (new Contact($tenant, 'Tenant Contact'))
@@ -115,5 +157,22 @@ final class CrmBrowserCallWorkflowTest extends WebTestCase
         }
 
         $connection->executeStatement('TRUNCATE '.implode(', ', $tables).' RESTART IDENTITY CASCADE');
+    }
+
+    private function browserCallToken(Property $property, Contact $contact): string
+    {
+        $this->client->request('GET', sprintf('/crm/properties/%d', $property->getId()));
+        $crawler = $this->client->getCrawler();
+        $tokenNode = $crawler->filter('[data-controller="browser-softphone"][data-browser-softphone-csrf-token-value]')->first();
+
+        return (string) $tokenNode->attr('data-browser-softphone-csrf-token-value');
+    }
+
+    private function selectTenant(Tenant $tenant): void
+    {
+        $this->client->request('GET', '/crm/no-tenant');
+        $session = $this->client->getRequest()->getSession();
+        $session->set('crm.current_tenant_id', $tenant->getId());
+        $session->save();
     }
 }

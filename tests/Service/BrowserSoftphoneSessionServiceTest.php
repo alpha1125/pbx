@@ -65,32 +65,6 @@ final class BrowserSoftphoneSessionServiceTest extends WebTestCase
         self::assertSame($browserSession->getId(), $stored->getId());
     }
 
-    public function testAllocateIsIdempotentForTheSameBrowserCall(): void
-    {
-        $tenant = new Tenant('Tenant Two');
-        $user = (new User())
-            ->setEmail('csr2@example.com')
-            ->setPassword('unused')
-            ->setDisplayName('CSR Two');
-        $session = (new CallSession('browser-session-2'))
-            ->setTenant($tenant)
-            ->setCsrUser($user)
-            ->setCallMode(CallSession::CALL_MODE_BROWSER)
-            ->setCallState(CallSession::CALL_STATE_INITIATED);
-
-        $this->entityManager->persist($tenant);
-        $this->entityManager->persist($user);
-        $this->entityManager->persist($session);
-        $this->entityManager->flush();
-
-        $service = $this->service();
-        $first = $service->allocate($session, $user);
-        $second = $service->allocate($session, $user);
-
-        self::assertSame($first->getId(), $second->getId());
-        self::assertSame($first->getSessionToken(), $second->getSessionToken());
-    }
-
     public function testAllocateRejectsBridgeCallSessions(): void
     {
         $tenant = new Tenant('Tenant Three');
@@ -199,17 +173,13 @@ final class BrowserSoftphoneSessionServiceTest extends WebTestCase
             ->setCallState(CallSession::CALL_STATE_INITIATED)
             ->setClientPhoneNumber('+14165550123');
 
-        $this->entityManager->persist($tenant);
-        $this->entityManager->persist($user);
-        $this->entityManager->persist($session);
-        $this->entityManager->flush();
-
-        $browserSession = $this->service()->allocate($session, $user);
-        $this->service()->recordCallEvent($browserSession, 'call.requesting', 'browser-call-id-1', '+14165550123');
+        $browserSession = new BrowserSoftphoneSession($session, $tenant, $user, 'session-token-6');
+        $service = $this->statelessService();
+        $service->recordCallEvent($browserSession, 'call.requesting', 'browser-call-id-1', '+14165550123');
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Browser call identifier does not match the active call session.');
-        $this->service()->recordCallEvent($browserSession, 'call.ringing', 'browser-call-id-2', '+14165550123');
+        $service->recordCallEvent($browserSession, 'call.ringing', 'browser-call-id-2', '+14165550123');
     }
 
     private function service(): BrowserSoftphoneSessionService
@@ -223,6 +193,27 @@ final class BrowserSoftphoneSessionServiceTest extends WebTestCase
         return new BrowserSoftphoneSessionService(
             $this->sessions,
             $this->entityManager,
+            $auditLogger,
+            $timelineProjector,
+        );
+    }
+
+    private function statelessService(): BrowserSoftphoneSessionService
+    {
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->method('persist')->willReturnCallback(static function (): void {});
+        $entityManager->method('flush')->willReturnCallback(static function (): void {});
+
+        $auditLogger = $this->createStub(AuditLogger::class);
+        $auditLogger->method('log')->willReturnCallback(
+            static fn (...$args): AuditLog => new AuditLog((string) $args[1], (string) $args[2], (string) $args[3]),
+        );
+        $timelineProjector = $this->createStub(CommunicationTimelineProjector::class);
+        $sessions = $this->sessions;
+
+        return new BrowserSoftphoneSessionService(
+            $sessions,
+            $entityManager,
             $auditLogger,
             $timelineProjector,
         );

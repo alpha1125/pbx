@@ -105,6 +105,95 @@ final class CallCaptureControlServiceTest extends WebTestCase
         self::assertSame('capture-57:'.$sessionId.':transcription-stop', $recorder->requests[1][2]['command_id']);
     }
 
+    public function testStartRecordingRejectsMissingCallControlId(): void
+    {
+        $session = $this->sessionWithId(58);
+        $service = $this->service(new class {
+            /** @var list<array{string,string,array<string, mixed>}> */
+            public array $requests = [];
+        });
+
+        try {
+            $service->startRecording($session, null, new CapturePolicy(true, false), 'capture-58');
+            self::fail('Expected a runtime exception for missing call control id.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('Call control ID is required to start recording.', $exception->getMessage());
+            self::assertNotSame(CallSession::RECORDING_STATE_ACTIVE, $session->getRecordingState());
+        }
+    }
+
+    public function testFailedRecordingCommandDoesNotLeaveSessionActive(): void
+    {
+        $session = $this->sessionWithId(59);
+        $leg = $this->legWithControlId($session, 'leg-59', 'control-59');
+        $httpClient = new MockHttpClient(static fn (): MockResponse => new MockResponse('{}', ['http_code' => 500]));
+        $callControl = new TelnyxCallControlService($httpClient, new NullLogger(), 'test-key');
+
+        $auditLogger = $this->createStub(AuditLogger::class);
+        $auditLogger->method('log')->willReturnCallback(
+            static fn (...$args): AuditLog => new AuditLog((string) $args[1], (string) $args[2], (string) $args[3]),
+        );
+        $config = new TelnyxTranscriptionConfiguration(true, 'gpt-4o-mini-transcribe', 'en', 'both', 'telnyx', false, false);
+        $service = new CallCaptureControlService(
+            $callControl,
+            static::getContainer()->get(CallActionRepository::class),
+            static::getContainer()->get(CallRecordingRepository::class),
+            static::getContainer()->get(TranscriptionJobRepository::class),
+            $this->entityManager,
+            $auditLogger,
+            new NullLogger(),
+            'wav',
+            'dual',
+            $config,
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Telnyx action "record_start" failed with HTTP 500.');
+
+        try {
+            $service->startRecording($session, $leg, new CapturePolicy(true, false), 'capture-59');
+        } finally {
+            self::assertSame(CallSession::RECORDING_STATE_FAILED, $session->getRecordingState());
+            self::assertNotSame(CallSession::RECORDING_STATE_ACTIVE, $session->getRecordingState());
+        }
+    }
+
+    public function testFailedTranscriptionCommandDoesNotLeaveSessionActive(): void
+    {
+        $session = $this->sessionWithId(60);
+        $leg = $this->legWithControlId($session, 'leg-60', 'control-60');
+        $httpClient = new MockHttpClient(static fn (): MockResponse => new MockResponse('{}', ['http_code' => 500]));
+        $callControl = new TelnyxCallControlService($httpClient, new NullLogger(), 'test-key');
+
+        $auditLogger = $this->createStub(AuditLogger::class);
+        $auditLogger->method('log')->willReturnCallback(
+            static fn (...$args): AuditLog => new AuditLog((string) $args[1], (string) $args[2], (string) $args[3]),
+        );
+        $config = new TelnyxTranscriptionConfiguration(true, 'gpt-4o-mini-transcribe', 'en', 'both', 'telnyx', false, false);
+        $service = new CallCaptureControlService(
+            $callControl,
+            static::getContainer()->get(CallActionRepository::class),
+            static::getContainer()->get(CallRecordingRepository::class),
+            static::getContainer()->get(TranscriptionJobRepository::class),
+            $this->entityManager,
+            $auditLogger,
+            new NullLogger(),
+            'wav',
+            'dual',
+            $config,
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Telnyx action "transcription_start" failed with HTTP 500.');
+
+        try {
+            $service->startTranscription($session, $leg, new CapturePolicy(false, true), 'capture-60');
+        } finally {
+            self::assertSame(CallSession::TRANSCRIPTION_STATE_FAILED, $session->getTranscriptionState());
+            self::assertNotSame(CallSession::TRANSCRIPTION_STATE_ACTIVE, $session->getTranscriptionState());
+        }
+    }
+
     private function service(object $recorder): CallCaptureControlService
     {
         $httpClient = new MockHttpClient(static function (string $method, string $url, array $options) use ($recorder): MockResponse {

@@ -66,6 +66,9 @@ class BrowserSoftphoneSession
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $telnyxConnectionId = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $telnyxCallControlId = null;
+
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $callId = null;
@@ -279,6 +282,19 @@ class BrowserSoftphoneSession
     {
         $trimmed = null !== $telnyxConnectionId ? trim($telnyxConnectionId) : '';
         $this->telnyxConnectionId = '' === $trimmed ? null : $trimmed;
+
+        return $this;
+    }
+
+    public function getTelnyxCallControlId(): ?string
+    {
+        return $this->telnyxCallControlId;
+    }
+
+    public function setTelnyxCallControlId(?string $telnyxCallControlId): static
+    {
+        $trimmed = null !== $telnyxCallControlId ? trim($telnyxCallControlId) : '';
+        $this->telnyxCallControlId = '' === $trimmed ? null : $trimmed;
 
         return $this;
     }

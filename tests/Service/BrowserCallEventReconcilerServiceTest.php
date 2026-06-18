@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace App\Tests\Service;
 
+use App\Entity\BrowserSoftphoneSession;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use App\Entity\CallSession;
+use App\Entity\Tenant;
+use App\Entity\User;
 use App\Service\BrowserCallEventReconcilerService;
+use App\Repository\BrowserSoftphoneSessionRepository;
+use App\Repository\CallSessionRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -45,59 +50,74 @@ final class BrowserCallEventReconcilerServiceTest extends TestCase
     #[Test]
     public function normalizeEventMappingsAreCorrect(): void
     {
-        $testee = new class extends BrowserCallEventReconcilerService {
-            public function __construct() {}
+        $reflection = new \ReflectionClass(BrowserCallEventReconcilerService::class);
+        $testee = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('normalizeBrowserEvent');
+        $method->setAccessible(true);
 
-            public function exposeNormalize(string $event, array $meta): ?array
-            {
-                $ref = new \ReflectionMethod(parent::class, 'normalizeBrowserEvent');
-                $ref->setAccessible(true);
-
-                return $ref->invoke($this, $event, $meta);
-            }
-        };
+        $normalize = static fn (string $event, array $meta): ?array => $method->invoke($testee, $event, $meta);
 
         // Non-call events return null.
-        self::assertNull($testee->exposeNormalize('sdk_connecting', []));
-        self::assertNull($testee->exposeNormalize('sdk_ready', []));
-        self::assertNull($testee->exposeNormalize('sdk_disconnected', []));
-        self::assertNull($testee->exposeNormalize('mic_denied', []));
-        self::assertNull($testee->exposeNormalize('unknown_event', []));
+        self::assertNull($normalize('sdk_connecting', []));
+        self::assertNull($normalize('sdk_ready', []));
+        self::assertNull($normalize('sdk_disconnected', []));
+        self::assertNull($normalize('mic_denied', []));
+        self::assertNull($normalize('unknown_event', []));
 
         // call.requesting -> dialing.
-        $n = $testee->exposeNormalize('call.requesting', []);
+        $n = $normalize('call.requesting', []);
         self::assertNotNull($n);
         self::assertSame('dialing', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_INITIATED, $n['callState']);
 
         // call.ringing -> ringing.
-        $n = $testee->exposeNormalize('call.ringing', []);
+        $n = $normalize('call.ringing', []);
         self::assertNotNull($n);
         self::assertSame('ringing', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_RINGING, $n['callState']);
 
         // call.active -> connected.
-        $n = $testee->exposeNormalize('call.active', []);
+        $n = $normalize('call.active', []);
         self::assertNotNull($n);
         self::assertSame('connected', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_CONNECTED, $n['callState']);
 
         // call.hangup -> csr_hangup.
-        $n = $testee->exposeNormalize('call.hangup', []);
+        $n = $normalize('call.hangup', []);
         self::assertNotNull($n);
         self::assertSame('csr_hangup', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_COMPLETED, $n['callState']);
 
         // call.failed (default) -> failed.
-        $n = $testee->exposeNormalize('call.failed', ['errorCode' => 'no_answer']);
+        $n = $normalize('call.failed', ['errorCode' => 'no_answer']);
         self::assertNotNull($n);
         self::assertSame('failed', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_FAILED, $n['callState']);
 
         // call.failed (timeout) -> timed_out.
-        $n = $testee->exposeNormalize('call.failed', ['errorCode' => 'timeout']);
+        $n = $normalize('call.failed', ['errorCode' => 'timeout']);
         self::assertNotNull($n);
         self::assertSame('timed_out', $n['normalizedEvent']);
         self::assertSame(CallSession::CALL_STATE_FAILED, $n['callState']);
+    }
+
+    #[Test]
+    public function staleBrowserEventsDoNotDowngradeTheAuthoritativeCallState(): void
+    {
+        $reflection = new \ReflectionClass(BrowserCallEventReconcilerService::class);
+        $service = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('isStateAcceptable');
+        $method->setAccessible(true);
+
+        $session = (new CallSession('provider-stale-event'))
+            ->setCallMode(CallSession::CALL_MODE_BROWSER)
+            ->setCallState(CallSession::CALL_STATE_COMPLETED)
+            ->setStatus('completed');
+
+        self::assertFalse($method->invoke($service, $session, CallSession::CALL_STATE_RINGING));
+        self::assertFalse($method->invoke($service, $session, CallSession::CALL_STATE_COMPLETED));
+
+        $session->setCallState(CallSession::CALL_STATE_INITIATED);
+        self::assertTrue($method->invoke($service, $session, CallSession::CALL_STATE_RINGING));
     }
 }

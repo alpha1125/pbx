@@ -32,7 +32,7 @@ use Symfony\Component\Routing\Attribute\Route;
  * so Browser Call and Bridge Call share identical CRM behaviour.
  *
  * For Browser Call mode: actions are sent via Telnyx Call Control API using the
- * session's providerSessionId as call_control_id.
+ * call-control id captured from the browser SDK call object, not providerSessionId.
  */
 final class CrmBrowserCallControlController extends AbstractController
 {
@@ -67,8 +67,7 @@ final class CrmBrowserCallControlController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_hangup_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->json(['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -86,9 +85,25 @@ final class CrmBrowserCallControlController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Active browser call session required.'], Response::HTTP_NOT_FOUND);
         }
 
+        $user = $this->getUser();
+        if (!$user instanceof \App\Entity\User) {
+            return $this->json(['ok' => false, 'error' => 'You must be logged in to hang up.'], Response::HTTP_FORBIDDEN);
+        }
+
+        try {
+            $browserSession = $browserSoftphoneSessions->findByProviderSessionId($tenant, $user, trim($providerSessionId));
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $callControlId = $browserSession->getTelnyxCallControlId();
+        if (null === $callControlId || '' === trim($callControlId)) {
+            return $this->json(['ok' => false, 'error' => 'Browser call control ID is not available yet.'], Response::HTTP_BAD_REQUEST);
+        }
+
         // Platform hangup via Telnyx (best-effort)
         try {
-            $callControl->hangup(trim($providerSessionId));
+            $callControl->hangup($callControlId);
         } catch (\Throwable) {
             // Browser-side client will also disconnect the SDK call.
         }
@@ -103,12 +118,7 @@ final class CrmBrowserCallControlController extends AbstractController
         $em->flush();
 
         // Sync browser softphone session state
-        try {
-            $browserSession = $browserSoftphoneSessions->findByProviderSessionId(trim($providerSessionId));
-            $browserSoftphoneSessions->recordCallEvent($browserSession, 'call.hangup', null, null, null, null);
-        } catch (\Throwable) {
-            // Best effort.
-        }
+        $browserSoftphoneSessions->recordCallEvent($browserSession, 'call.hangup', null, null, null, null);
 
         $auditLogger->log(
             $callSession->getTenant(),
@@ -119,6 +129,7 @@ final class CrmBrowserCallControlController extends AbstractController
             ['status' => $callSession->getStatus(), 'callState' => $callSession->getCallState()],
             ['propertyId' => $propertyId, 'contactId' => $contactId],
         );
+        $em->flush();
 
         // Push hangup event to stream for CRM UI updates
         try {
@@ -170,8 +181,7 @@ final class CrmBrowserCallControlController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_recording_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->json(['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -189,46 +199,42 @@ final class CrmBrowserCallControlController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Active browser call session required.'], Response::HTTP_NOT_FOUND);
         }
 
+        $user = $this->getUser();
+        if (!$user instanceof \App\Entity\User) {
+            return $this->json(['ok' => false, 'error' => 'You must be logged in to control recording.'], Response::HTTP_FORBIDDEN);
+        }
+
+        try {
+            $browserSession = $browserSoftphoneSessions->findByProviderSessionId($tenant, $user, trim($providerSessionId));
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $callControlId = $browserSession->getTelnyxCallControlId();
+        if (null === $callControlId || '' === trim($callControlId)) {
+            return $this->json(['ok' => false, 'error' => 'Browser call control ID is not available yet.'], Response::HTTP_BAD_REQUEST);
+        }
+
         // Already recording? Stop it; otherwise start it.
-        if (CallSession::RECORDING_STATE_INACTIVE === $callSession->getRecordingState() || CallSession::RECORDING_STATE_STOPPED === $callSession->getRecordingState()) {
-            // Start capture: play consent, then start recording + transcription
-            $this->startCapture($callSession, $captureControl, $auditLogger);
+        try {
+            if (CallSession::RECORDING_STATE_INACTIVE === $callSession->getRecordingState() || CallSession::RECORDING_STATE_STOPPED === $callSession->getRecordingState()) {
+                $this->startCapture($callSession, $captureControl, $auditLogger, $callControlId);
 
-            // Update CRM state
-            $callSession
-                ->setRecordingState(CallSession::RECORDING_STATE_ACTIVE)
-                ->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_ACTIVE)
-                ->touch();
-            $em->persist($callSession);
-            $em->flush();
+                $em->persist($callSession);
+                $em->flush();
 
-            // Sync browser softphone session state (visible to CSR UI)
-            try {
-                $browserSession = $browserSoftphoneSessions->findByProviderSessionId(trim($providerSessionId));
                 $browserSoftphoneSessions->recordCallEvent($browserSession, 'call.recording_started', null, null, null, null);
-            } catch (\Throwable) {
-                // Best effort.
+
+                return $this->json([
+                    'ok' => true,
+                    'action' => 'start',
+                    'recordingState' => $callSession->getRecordingState(),
+                    'transcriptionState' => $callSession->getTranscriptionState(),
+                ]);
             }
 
-            return $this->json([
-                'ok' => true,
-                'action' => 'start',
-                'recordingState' => $callSession->getRecordingState(),
-                'transcriptionState' => $callSession->getTranscriptionState(),
-            ]);
-        } else {
-            // Stop capture: stop transcription then recording
-            try {
-                $captureControl->stopTranscription($callSession, null, 'browser-capture');
-            } catch (\Throwable) {
-                // Best effort.
-            }
-
-            try {
-                $captureControl->stopRecording($callSession, null, 'browser-capture');
-            } catch (\Throwable) {
-                // Best effort.
-            }
+            $captureControl->stopTranscription($callSession, null, 'browser-capture', $callControlId);
+            $captureControl->stopRecording($callSession, null, 'browser-capture', $callControlId);
 
             $callSession
                 ->setRecordingState(CallSession::RECORDING_STATE_STOPPED)
@@ -237,12 +243,7 @@ final class CrmBrowserCallControlController extends AbstractController
             $em->persist($callSession);
             $em->flush();
 
-            try {
-                $browserSession = $browserSoftphoneSessions->findByProviderSessionId(trim($providerSessionId));
-                $browserSoftphoneSessions->recordCallEvent($browserSession, 'call.recording_stopped', null, null, null, null);
-            } catch (\Throwable) {
-                // Best effort.
-            }
+            $browserSoftphoneSessions->recordCallEvent($browserSession, 'call.recording_stopped', null, null, null, null);
 
             return $this->json([
                 'ok' => true,
@@ -250,6 +251,8 @@ final class CrmBrowserCallControlController extends AbstractController
                 'recordingState' => $callSession->getRecordingState(),
                 'transcriptionState' => $callSession->getTranscriptionState(),
             ]);
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
         }
     }
 
@@ -282,8 +285,7 @@ final class CrmBrowserCallControlController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_dtmf_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->json(['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -303,10 +305,26 @@ final class CrmBrowserCallControlController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Active browser call session required.'], Response::HTTP_NOT_FOUND);
         }
 
+        $user = $this->getUser();
+        if (!$user instanceof \App\Entity\User) {
+            return $this->json(['ok' => false, 'error' => 'You must be logged in to send DTMF.'], Response::HTTP_FORBIDDEN);
+        }
+
+        try {
+            $browserSession = $browserSoftphoneSessions->findByProviderSessionId($tenant, $user, trim($providerSessionId));
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $callControlId = $browserSession->getTelnyxCallControlId();
+        if (null === $callControlId || '' === trim($callControlId)) {
+            return $this->json(['ok' => false, 'error' => 'Browser call control ID is not available yet.'], Response::HTTP_BAD_REQUEST);
+        }
+
         // Send DTMF via Telnyx Call Control API (platform-level)
         // Browser-side SDK also sends DTMF locally for immediate UX feedback.
         try {
-            $callControl->playDtmf(trim($providerSessionId), trim($digits));
+            $callControl->playDtmf($callControlId, trim($digits));
         } catch (\Throwable $exception) {
             return $this->json(['ok' => false, 'error' => 'DTMF send failed: '.$exception->getMessage()], Response::HTTP_BAD_REQUEST);
         }
@@ -343,8 +361,7 @@ final class CrmBrowserCallControlController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $property);
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
-        $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_browser_call_mute_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (!$this->isCsrfTokenValid($this->browserCallTokenId($propertyId, $contactId), (string) $request->request->get('_token'))) {
             return $this->json(['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -362,19 +379,40 @@ final class CrmBrowserCallControlController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Active browser call session required.'], Response::HTTP_NOT_FOUND);
         }
 
+        $user = $this->getUser();
+        if (!$user instanceof \App\Entity\User) {
+            return $this->json(['ok' => false, 'error' => 'You must be logged in to mute.'], Response::HTTP_FORBIDDEN);
+        }
+
+        try {
+            $browserSession = $browserSoftphoneSessions->findByProviderSessionId($tenant, $user, trim($providerSessionId));
+        } catch (\RuntimeException $exception) {
+            return $this->json(['ok' => false, 'error' => 'Browser softphone session not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $callControlId = $browserSession->getTelnyxCallControlId();
+        if (null === $callControlId || '' === trim($callControlId)) {
+            return $this->json(['ok' => false, 'error' => 'Browser call control ID is not available yet.'], Response::HTTP_BAD_REQUEST);
+        }
+
         $mute = strtolower((string) ($request->request->get('action', ''))) === 'mute';
         $state = $mute ? 'muted' : 'unmuted';
 
         // Try platform-side mute (Telnyx pause/resume)
         try {
             if ($mute) {
-                $callControl->mute(trim($providerSessionId), true);
+                $callControl->mute($callControlId, true);
             }
         } catch (\Throwable) {
             // Best effort: browser-side SDK media track toggle handles local mute.
         }
 
         return $this->json(['ok' => true, 'state' => $state]);
+    }
+
+    private function browserCallTokenId(int $propertyId, int $contactId): string
+    {
+        return sprintf('crm_browser_call_%d_%d', $propertyId, $contactId);
     }
 
     /**
@@ -384,69 +422,43 @@ final class CrmBrowserCallControlController extends AbstractController
         CallSession $callSession,
         CallCaptureControlService $captureControl,
         AuditLogger $auditLogger,
+        string $callControlId,
     ): void {
-        // Play consent message (best effort for browser calls)
-        try {
-            $captureControl->playConsentMessage(
-                $callSession,
-                null, // No CallLeg for direct WebRTC; consent is logged locally.
-                'This call will be recorded for transcription and quality purposes.',
-                'browser-capture',
-            );
-        } catch (\Throwable) {
-            // Best effort: browser-side handles consent natively via SDK speak action if needed.
-        }
+        $captureControl->playConsentMessage(
+            $callSession,
+            null, // No CallLeg for direct WebRTC; consent is logged locally.
+            'This call will be recorded for transcription and quality purposes.',
+            'browser-capture',
+            $callControlId,
+        );
 
-        $callSession->setRecordingState(CallSession::RECORDING_STATE_CONSENT_PLAYING)->touch();
+        $captureControl->startRecording(
+            $callSession,
+            null,
+            new CapturePolicy(recordAudio: true, transcribeAudio: true),
+            'browser-capture',
+            $callControlId,
+        );
 
-        audit_start_capture:
+        $captureControl->startTranscription(
+            $callSession,
+            null,
+            new CapturePolicy(recordAudio: true, transcribeAudio: true),
+            'browser-capture',
+            $callControlId,
+        );
 
-        try {
-            // Start recording (browser call mode uses session providerSessionId as control)
-            $captureControl->startRecording(
-                $callSession,
-                null,
-                new CapturePolicy(recordAudio: true, transcribeAudio: true),
-                'browser-capture',
-            );
-
-            // Start transcription
-            $captureControl->startTranscription(
-                $callSession,
-                null,
-                new CapturePolicy(recordAudio: true, transcribeAudio: true),
-                'browser-capture',
-            );
-
-            $auditLogger->log(
-                $callSession->getTenant(),
-                'call_session',
-                (string) ($callSession->getId() ?? 'new'),
-                'call.browser_capture_started',
-                null,
-                [
-                    'recordingState' => CallSession::RECORDING_STATE_ACTIVE,
-                    'transcriptionState' => CallSession::TRANSCRIPTION_STATE_ACTIVE,
-                ],
-                ['providerSessionId' => $callSession->getProviderSessionId()],
-            );
-        } catch (\Throwable) {
-            // Best effort: Telnyx WebRTC SDK handles recording client-side for browser calls.
-            $auditLogger->log(
-                $callSession->getTenant(),
-                'call_session',
-                (string) ($callSession->getId() ?? 'new'),
-                'call.browser_capture_started',
-                null,
-                [
-                    'recordingState' => CallSession::RECORDING_STATE_ACTIVE,
-                    'transcriptionState' => CallSession::TRANSCRIPTION_STATE_ACTIVE,
-                    'note' => 'client-side capture via Telnyx WebRTC SDK',
-                ],
-                ['providerSessionId' => $callSession->getProviderSessionId()],
-            );
-
-            $callSession->setRecordingState(CallSession::RECORDING_STATE_INACTIVE)->touch();
-        }
+        $auditLogger->log(
+            $callSession->getTenant(),
+            'call_session',
+            (string) ($callSession->getId() ?? 'new'),
+            'call.browser_capture_started',
+            null,
+            [
+                'recordingState' => CallSession::RECORDING_STATE_ACTIVE,
+                'transcriptionState' => CallSession::TRANSCRIPTION_STATE_ACTIVE,
+            ],
+            ['callControlId' => $callControlId],
+        );
     }
 }

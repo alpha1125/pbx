@@ -294,6 +294,51 @@ final class CrmBrowserCallEventReconciliationWorkflowTest extends WebTestCase
         self::assertSame(CallSession::CALL_STATE_CONNECTED, $updatedAgain->getCallState());
     }
 
+    #[Test]
+    public function browserEventsEndpointRejectsStaleEventsAfterTerminalProviderState(): void
+    {
+        $data = $this->seedTenantData();
+
+        $callSession = (new CallSession('provider-recon-6'))
+            ->setProvider('telnyx')
+            ->setTenant($data['tenant'])
+            ->setProperty($data['property'])
+            ->setContact($data['contact'])
+            ->setCsrUser($data['user'])
+            ->setCallMode(CallSession::CALL_MODE_BROWSER)
+            ->setCallState(CallSession::CALL_STATE_COMPLETED)
+            ->setClientPhoneNumber($data['contact']->getPrimaryPhone())
+            ->setStatus('completed')
+            ->touch();
+        $this->entityManager->persist($callSession);
+
+        $browserSession = new BrowserSoftphoneSession(
+            $callSession, $data['tenant'], $data['user'], 'recon-token-6',
+        );
+        $this->entityManager->persist($browserSession);
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['user']);
+        $this->client->request('POST', sprintf(
+            '/api/calls/%s/browser-events',
+            $callSession->getProviderSessionId(),
+        ), [], [], [
+            'HTTP_ACCEPT' => 'application/json',
+        ], json_encode(['event' => 'call.active']));
+
+        self::assertResponseIsSuccessful();
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($payload['ok']);
+        self::assertSame(CallSession::CALL_STATE_COMPLETED, $payload['callState']);
+
+        /** @var CallSessionRepository $repo */
+        $repo = static::getContainer()->get(CallSessionRepository::class);
+        $updated = $repo->findOneBy(['providerSessionId' => $callSession->getProviderSessionId()]);
+        self::assertNotNull($updated);
+        self::assertSame(CallSession::CALL_STATE_COMPLETED, $updated->getCallState());
+        self::assertSame('completed', $updated->getStatus());
+    }
+
     /**
      * @return array{tenant:Tenant,user:User,property:Property,contact:Contact}
      */

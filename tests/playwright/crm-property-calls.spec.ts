@@ -26,6 +26,9 @@ test('property page exposes browser and bridge call actions', async ({ page }) =
 
 test('browser softphone dials the approved number and reports call states', async ({ page }) => {
   await page.addInitScript(() => {
+    (window as Window & { __telnyxNewCallCount: number }).__telnyxNewCallCount = 0;
+  });
+  await page.addInitScript(() => {
     Object.defineProperty(navigator, 'mediaDevices', {
       value: {
         getUserMedia: async () => ({
@@ -59,6 +62,7 @@ test('browser softphone dials the approved number and reports call states', asyn
       }
 
       newCall(options) {
+        (window as Window & { __telnyxNewCallCount: number }).__telnyxNewCallCount += 1;
         const call = {
           id: 'browser-call-1',
           state: 'requesting',
@@ -134,7 +138,9 @@ test('browser softphone dials the approved number and reports call states', asyn
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await page.goto(`${baseURL}/crm/properties/1`);
+  await expect.poll(async () => page.evaluate(() => (window as Window & { __telnyxNewCallCount: number }).__telnyxNewCallCount)).toBe(0);
   await page.getByRole('button', { name: 'Place Browser Call' }).click();
+  await expect.poll(async () => page.evaluate(() => (window as Window & { __telnyxNewCallCount: number }).__telnyxNewCallCount)).toBe(1);
 
   await expect(page.getByText('Browser softphone connected. Placing approved call...')).toBeVisible({ timeout: 60000 });
   await expect(page.getByText('Connected to Telnyx.')).toBeVisible();

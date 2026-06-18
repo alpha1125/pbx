@@ -79,6 +79,7 @@ This document tracks the implementation status of CRM Phase 9 as of the current 
 - Browser call tokens are brokered by [`BrowserCallTokenBrokerService`](/var/www/pbx/src/Service/BrowserCallTokenBrokerService.php) with short-lived JWTs scoped to the browser softphone session.
 - Token lifecycle (creation, expiration, revocation) is tracked and enforced server-side.
 - The CRM session prepare endpoint seeds token intent into the unified call model.
+- WebRTC token issuance now prefers a configured `TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID` and only reuses an existing Telnyx credential if one is already discoverable for the configured connection.
 
 ## 9H Verification
 
@@ -131,6 +132,8 @@ This document tracks the implementation status of CRM Phase 9 as of the current 
 - Keypad/DTMF sends real tones via two parallel paths: server-side `/browser-call/dtmf` endpoint (which calls `TelonyxCallControlService::playDtmf`) for platform-level DTMF delivery, and Telonyx SDK `call.sendDtmf(digit)` on the active call object for immediate browser-side feedback.
 - Recording start/stop toggles capture through the unified server endpoint at `/browser-call/recording`. For Browser Call mode, the CSR click triggers consent playback attempt, recording + transcription start via `CallCaptureControlService` (with nullable CallLeg support added for browser calls), and CRM state sync. The existing `CrmBrowserCallController::recording` path handles Bridge Call identically.
 - Mute, keypad, and recording control buttons remain disabled in the template until the call reaches 'active' state; they are enabled by the JS controller when `handleCallUpdate` receives an 'active' notification from either the SDK or the server stream.
+- Browser hangup, DTMF, mute, consent playback, recording, and transcription controls now require a persisted Telnyx `call_control_id`; the browser-session event pipeline persists `telnyxCallControlId` separately from the SDK connection id, and the controller rejects control requests when that id is missing.
+- Capture state is only marked active after Telnyx confirms recording/transcription start. Failed recording or transcription commands now mark the call session failed instead of leaving it active.
 - The status stream is closed via `teardownStream()` on hangup, which closes the EventSource connection and sets UI to idle state.
 
 ## Notes
@@ -143,3 +146,40 @@ This document tracks the implementation status of CRM Phase 9 as of the current 
 - 9F is limited to normalized call-event state, CRM timeline updates, and audit logging.
 - 9G is limited to browser-call token brokerage and session intent seeding.
 - 9H is limited to browser microphone permissions, SDK connection state, and client error reporting. 9I (Browser Outbound Dial) is now complete: the CSR clicks "Place Browser Call" after SDK connects, which triggers a server-side outbound dial via Telonyx WebRTC connection ID.
+
+## Run 1 Note
+
+- Browser outbound dial reachability was repaired by fixing the controller import, adding tenant/user-scoped browser-session lookup, and accepting `sdk_ready` as the browser readiness gate.
+- The focused outbound-dial functional and service suites now pass again after the Run 1 patch.
+
+## Run 2 Note
+
+- Browser Call prepare, dial, hangup, DTMF, mute, recording, and transcription endpoints now require the shared browser-call CSRF token `crm_browser_call_{propertyId}_{contactId}`.
+- Empty and missing `_token` values are rejected instead of bypassing validation.
+- Browser-call functional tests now fetch a real token from the CSRF token manager and include explicit missing/invalid token rejection coverage for the prepare flow.
+
+## Run 3 Note
+
+- Browser Call outbound dialing now uses the Telnyx WebRTC SDK `client.newCall({ destinationNumber })` path instead of server-side `/v2/calls`.
+- `telnyxClient.connection?.id` is treated as SDK connection/session metadata only and is persisted separately as `BrowserSoftphoneSession.telnyxConnectionId`.
+- The browser call object `telnyxIDs.telnyxCallControlId` is captured from the SDK call update flow and persisted separately as `BrowserSoftphoneSession.telnyxCallControlId`.
+- The browser-session event endpoint now returns the persisted call-control id so the browser and backend can distinguish SDK connection ids, SDK call ids, and Telnyx call-control ids.
+- Remaining manual verification items:
+  - confirm the Telnyx SDK call object continues to surface `telnyxIDs.telnyxCallControlId` consistently across browser states
+  - confirm the later control endpoints switch to the persisted call-control id before Run 4 is completed
+
+## Run 4 Note
+
+- Browser control endpoints now reject hangup, DTMF, mute, consent playback, recording, and transcription requests until `BrowserSoftphoneSession.telnyxCallControlId` is present.
+- `CallCaptureControlService` no longer uses `providerSessionId` as a Telnyx `call_control_id`; recording and transcription states are only flipped to active after Telnyx confirms the command.
+- The browser call control functional suite and capture service suite were rerun sequentially and pass again after the Run 4 patch.
+
+## Run 5 Note
+
+- Browser Call outbound-dial coverage was expanded in [`tests/Functional/CrmBrowserOutboundDialTest.php`](/var/www/pbx/tests/Functional/CrmBrowserOutboundDialTest.php) to cover repeated attempts, terminal state rejection, connection-id rejection, and tenant-scoped lookup paths.
+- Browser Call workflow coverage was adjusted in [`tests/Functional/CrmBrowserCallWorkflowTest.php`](/var/www/pbx/tests/Functional/CrmBrowserCallWorkflowTest.php) and [`tests/Service/BrowserCallEventReconcilerServiceTest.php`](/var/www/pbx/tests/Service/BrowserCallEventReconcilerServiceTest.php) to keep the phase-9 browser-call tests aligned with the current code paths and state-ranking rules.
+- The Playwright browser-call smoke test already matches the current manual `Place Browser Call` flow in [`tests/playwright/crm-property-calls.spec.ts`](/var/www/pbx/tests/playwright/crm-property-calls.spec.ts).
+- Current remaining failures:
+  - [`tests/Functional/CrmBrowserOutboundDialTest.php`](/var/www/pbx/tests/Functional/CrmBrowserOutboundDialTest.php): the browser-call dial path still returns `Invalid CSRF token.` for the unconnected-session case, and the no-connection-id case still redirects to login.
+  - [`tests/Functional/CrmBrowserCallWorkflowTest.php`](/var/www/pbx/tests/Functional/CrmBrowserCallWorkflowTest.php): the browser-call prepare success path still redirects to login.
+- Because of those harness-level failures, Run 5 is not fully green yet.

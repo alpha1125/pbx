@@ -117,6 +117,7 @@ final class BrowserSoftphoneSessionController extends AbstractController
         $errorMessage = is_string($payload['message'] ?? null) ? trim((string) $payload['message']) : null;
         $meta = is_array($payload['meta'] ?? null) ? $payload['meta'] : null;
         $callId = is_string($payload['callId'] ?? null) ? trim((string) $payload['callId']) : null;
+        $telnyxCallControlId = is_string($payload['telnyxCallControlId'] ?? null) ? trim((string) $payload['telnyxCallControlId']) : null;
         $destinationNumber = is_string($payload['destinationNumber'] ?? null) ? trim((string) $payload['destinationNumber']) : null;
         $telnyxConnectionId = is_string($payload['telnyxConnectionId'] ?? null) ? trim((string) $payload['telnyxConnectionId']) : null;
 
@@ -135,19 +136,28 @@ final class BrowserSoftphoneSessionController extends AbstractController
                 $entityManager->flush();
             }
         } elseif (in_array($event, ['call.requesting', 'call.ringing', 'call.active', 'call.hangup', 'call.failed'], true)) {
-            $browserSoftphoneSessions->recordCallEvent($browserSession, $event, $callId, $destinationNumber, $errorCode, $errorMessage, $meta);
-
-            // Phase 9K: Reconcile browser-reported call events with Telnyx webhook state.
             try {
-                $reconciler->reconcile(
-                    $browserSession->getCallSession()->getProviderSessionId(),
-                    $event,
-                    $callId,
-                    $destinationNumber,
-                    ['errorCode' => $errorCode, 'errorMessage' => $errorMessage] + ($meta ?? []),
-                );
-            } catch (\Throwable $exception) {
-                // Best effort: reconciliation does not block event recording.
+                if (null !== $telnyxCallControlId && '' !== $telnyxCallControlId) {
+                    $browserSession->setTelnyxCallControlId($telnyxCallControlId);
+                    $entityManager->flush();
+                }
+
+                $browserSoftphoneSessions->recordCallEvent($browserSession, $event, $callId, $destinationNumber, $errorCode, $errorMessage, $meta);
+
+                // Phase 9K: Reconcile browser-reported call events with Telnyx webhook state.
+                try {
+                    $reconciler->reconcile(
+                        $browserSession->getCallSession()->getProviderSessionId(),
+                        $event,
+                        $callId,
+                        $destinationNumber,
+                        ['errorCode' => $errorCode, 'errorMessage' => $errorMessage] + ($meta ?? []),
+                    );
+                } catch (\Throwable $exception) {
+                    // Best effort: reconciliation does not block event recording.
+                }
+            } catch (\RuntimeException $exception) {
+                return $this->json(['ok' => false, 'error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
             }
         } else {
             return $this->json(['ok' => false, 'error' => sprintf('Unsupported browser softphone event "%s".', $event)], Response::HTTP_BAD_REQUEST);
@@ -162,6 +172,7 @@ final class BrowserSoftphoneSessionController extends AbstractController
             'connectionErrorCode' => $browserSession->getConnectionErrorCode(),
             'connectionErrorMessage' => $browserSession->getConnectionErrorMessage(),
             'callId' => $browserSession->getCallId(),
+            'telnyxCallControlId' => $browserSession->getTelnyxCallControlId(),
             'callState' => $browserSession->getCallState(),
             'callErrorCode' => $browserSession->getCallErrorCode(),
             'callErrorMessage' => $browserSession->getCallErrorMessage(),

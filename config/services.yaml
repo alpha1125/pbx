@@ -8,7 +8,9 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     telnyx_api_key: ''
+    telnyx_webrtc_credential_connection_id: ''
     telnyx_webrtc_telephony_credential_id: ''
+    telnyx_browser_call_destination_number: ''
     telnyx_forward_to_number: ''
     telnyx_from_number: '+12892079888'
     telnyx_connection_id: ''
@@ -67,6 +69,24 @@ services:
     App\Service\TelnyxWebrtcTokenService:
         arguments:
             $apiKey: '%env(default:telnyx_api_key:TELNYX_API_KEY)%'
+            $connectionId: '%env(default:telnyx_connection_id:TELNYX_CONNECTION_ID)%'
+            $telephonyCredentialId: '%env(default:telnyx_webrtc_telephony_credential_id:TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID)%'
+
+    App\Service\TelnyxWebRtcProvisioningService:
+        arguments:
+            $apiKey: '%env(default:telnyx_api_key:TELNYX_API_KEY)%'
+            $credentialConnectionId: '%env(default:telnyx_webrtc_credential_connection_id:TELNYX_WEBRTC_CREDENTIAL_CONNECTION_ID)%'
+            $telephonyCredentialId: '%env(default:telnyx_webrtc_telephony_credential_id:TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID)%'
+
+    App\Controller\Poc\BrowserSoftphoneController:
+        arguments:
+            $fromNumber: '%env(default:telnyx_from_number:TELNYX_FROM_NUMBER)%'
+            $destinationNumber: '%env(default:telnyx_browser_call_destination_number:TELNYX_BROWSER_CALL_DESTINATION_NUMBER)%'
+
+    App\Command\TelnyxWebRtcProvisionCommand:
+        arguments:
+            $apiKey: '%env(default:telnyx_api_key:TELNYX_API_KEY)%'
+            $credentialConnectionId: '%env(default:telnyx_webrtc_credential_connection_id:TELNYX_WEBRTC_CREDENTIAL_CONNECTION_ID)%'
             $telephonyCredentialId: '%env(default:telnyx_webrtc_telephony_credential_id:TELNYX_WEBRTC_TELEPHONY_CREDENTIAL_ID)%'
 
     App\Service\BrowserCallTokenIssueGuard:

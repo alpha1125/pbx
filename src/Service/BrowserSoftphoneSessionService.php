@@ -7,6 +7,7 @@ namespace App\Service;
 use App\Entity\AuditLog;
 use App\Entity\BrowserSoftphoneSession;
 use App\Entity\CallSession;
+use App\Entity\Tenant;
 use App\Entity\User;
 use App\Repository\BrowserSoftphoneSessionRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -70,6 +71,26 @@ final class BrowserSoftphoneSessionService
             ],
         );
         $this->entityManager->flush();
+
+        return $session;
+    }
+
+    public function findByProviderSessionId(Tenant $tenant, User $user, string $providerSessionId): BrowserSoftphoneSession
+    {
+        $session = $this->sessions->createQueryBuilder('browserSession')
+            ->innerJoin('browserSession.callSession', 'callSession')
+            ->andWhere('browserSession.tenant = :tenant')
+            ->andWhere('browserSession.user = :user')
+            ->andWhere('callSession.providerSessionId = :providerSessionId')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('user', $user)
+            ->setParameter('providerSessionId', trim($providerSessionId))
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        if (!$session instanceof BrowserSoftphoneSession) {
+            throw new \RuntimeException('Browser softphone session not found for the current tenant and user.');
+        }
 
         return $session;
     }

@@ -33,12 +33,15 @@ final class CallCaptureControlService
     ) {
     }
 
-    public function playConsentMessage(CallSession $session, ?CallLeg $leg, string $message, string $commandPrefix): void
+    public function playConsentMessage(
+        CallSession $session,
+        ?CallLeg $leg,
+        string $message,
+        string $commandPrefix,
+        ?string $callControlId = null,
+    ): void
     {
-        $callControlId = null !== $leg ? $leg->getCallControlId() : $session->getProviderSessionId();
-        if (null === $callControlId || '' === trim($callControlId)) {
-            return;
-        }
+        $callControlId = $this->resolveCallControlId($session, $leg, $callControlId, 'play consent');
 
         if ($this->actionRepository->hasActionForSession($session, 'consent_play')) {
             return;
@@ -103,10 +106,16 @@ final class CallCaptureControlService
         $this->entityManager->flush();
     }
 
-    public function startRecording(CallSession $session, ?CallLeg $leg, CapturePolicy $policy, string $commandPrefix): void
+    public function startRecording(
+        CallSession $session,
+        ?CallLeg $leg,
+        CapturePolicy $policy,
+        string $commandPrefix,
+        ?string $callControlId = null,
+    ): void
     {
-        $callControlId = null !== $leg ? $leg->getCallControlId() : $session->getProviderSessionId();
-        if (null === $callControlId || '' === trim($callControlId) || $this->actionRepository->hasActionForSession($session, 'record_start')) {
+        $callControlId = $this->resolveCallControlId($session, $leg, $callControlId, 'start recording');
+        if ($this->actionRepository->hasActionForSession($session, 'record_start')) {
             return;
         }
 
@@ -135,7 +144,6 @@ final class CallCaptureControlService
                 'capturePolicy' => $policy->toArray(),
             ]);
 
-        $session->setRecordingState(CallSession::RECORDING_STATE_ACTIVE)->touch();
         $this->entityManager->persist($action);
         if (null === $recording->getId()) {
             $this->entityManager->persist($recording);
@@ -150,6 +158,7 @@ final class CallCaptureControlService
                 'command_id' => $this->commandId($session, $commandPrefix, 'record-start'),
             ]);
             $action->setStatus('succeeded')->setResponsePayload($response);
+            $session->setRecordingState(CallSession::RECORDING_STATE_ACTIVE)->touch();
             $this->auditLogger->log(
                 $session->getTenant(),
                 'call_session',
@@ -171,10 +180,15 @@ final class CallCaptureControlService
         $this->entityManager->flush();
     }
 
-    public function stopRecording(CallSession $session, ?CallLeg $leg, string $commandPrefix): void
+    public function stopRecording(
+        CallSession $session,
+        ?CallLeg $leg,
+        string $commandPrefix,
+        ?string $callControlId = null,
+    ): void
     {
-        $callControlId = null !== $leg ? $leg->getCallControlId() : $session->getProviderSessionId();
-        if (null === $callControlId || '' === trim($callControlId) || $this->actionRepository->hasActionForSession($session, 'record_stop')) {
+        $callControlId = $this->resolveCallControlId($session, $leg, $callControlId, 'stop recording');
+        if ($this->actionRepository->hasActionForSession($session, 'record_stop')) {
             return;
         }
 
@@ -216,10 +230,16 @@ final class CallCaptureControlService
         $this->entityManager->flush();
     }
 
-    public function startTranscription(CallSession $session, ?CallLeg $leg, CapturePolicy $policy, string $commandPrefix): void
+    public function startTranscription(
+        CallSession $session,
+        ?CallLeg $leg,
+        CapturePolicy $policy,
+        string $commandPrefix,
+        ?string $callControlId = null,
+    ): void
     {
-        $callControlId = $leg->getCallControlId();
-        if (null === $callControlId || $this->actionRepository->hasActionForSession($session, 'transcription_start')) {
+        $callControlId = $this->resolveCallControlId($session, $leg, $callControlId, 'start transcription');
+        if ($this->actionRepository->hasActionForSession($session, 'transcription_start')) {
             return;
         }
 
@@ -252,7 +272,6 @@ final class CallCaptureControlService
                 'capturePolicy' => $policy->toArray(),
             ]);
 
-        $session->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_ACTIVE)->touch();
         if (null === $job->getId()) {
             $this->entityManager->persist($job);
         }
@@ -269,6 +288,7 @@ final class CallCaptureControlService
                 ->setRawProviderResponse($response)
                 ->touch();
             $action->setStatus('succeeded')->setResponsePayload($response);
+            $session->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_ACTIVE)->touch();
             $this->auditLogger->log(
                 $session->getTenant(),
                 'call_session',
@@ -294,10 +314,15 @@ final class CallCaptureControlService
         $this->entityManager->flush();
     }
 
-    public function stopTranscription(CallSession $session, ?CallLeg $leg, string $commandPrefix): void
+    public function stopTranscription(
+        CallSession $session,
+        ?CallLeg $leg,
+        string $commandPrefix,
+        ?string $callControlId = null,
+    ): void
     {
-        $callControlId = null !== $leg ? $leg->getCallControlId() : $session->getProviderSessionId();
-        if (null === $callControlId || '' === trim($callControlId) || $this->actionRepository->hasActionForSession($session, 'transcription_stop')) {
+        $callControlId = $this->resolveCallControlId($session, $leg, $callControlId, 'stop transcription');
+        if ($this->actionRepository->hasActionForSession($session, 'transcription_stop')) {
             return;
         }
 
@@ -337,6 +362,20 @@ final class CallCaptureControlService
         }
 
         $this->entityManager->flush();
+    }
+
+    private function resolveCallControlId(
+        CallSession $session,
+        ?CallLeg $leg,
+        ?string $callControlId,
+        string $operation,
+    ): string {
+        $resolved = null !== $callControlId ? trim($callControlId) : (null !== $leg ? trim((string) $leg->getCallControlId()) : '');
+        if ('' === $resolved) {
+            throw new \RuntimeException(sprintf('Call control ID is required to %s.', $operation));
+        }
+
+        return $resolved;
     }
 
     private function channelMappingFor(CallSession $session): ?array

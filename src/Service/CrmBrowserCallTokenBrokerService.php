@@ -46,10 +46,10 @@ final class CrmBrowserCallTokenBrokerService
             throw new \RuntimeException('This contact does not have a valid primary phone number.');
         }
 
-        $this->issueGuard->assertAllowed($tenant, $property, $contact, $user);
-
         $session = $this->sessions->findLatestBrowserCallIntent($tenant, $property, $contact, $user);
         if (null === $session) {
+            $this->issueGuard->assertAllowed($tenant, $property, $contact, $user);
+
             $session = (new CallSession('browser-intent-'.Uuid::v7()->toRfc4122()))
                 ->setProvider('telnyx')
                 ->setTenant($tenant)

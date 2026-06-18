@@ -45,11 +45,13 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
         );
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/prepare',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+        ), ['_token' => $token], [], ['HTTP_ACCEPT' => 'application/json']);
 
         self::assertResponseIsSuccessful();
         $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
@@ -79,7 +81,7 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
     }
 
     #[Test]
-    public function prepareBrowserCallIsRateLimitedForRepeatedRequests(): void
+    public function prepareBrowserCallReusesTheLatestIntentForRepeatedRequests(): void
     {
         $data = $this->seedTenantData();
         static::getContainer()->set(
@@ -88,23 +90,72 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
         );
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/prepare',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+        ), ['_token' => $token], [], ['HTTP_ACCEPT' => 'application/json']);
         self::assertResponseIsSuccessful();
 
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/prepare',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
-        self::assertResponseStatusCodeSame(429);
+        ), ['_token' => $token], [], ['HTTP_ACCEPT' => 'application/json']);
+        self::assertResponseIsSuccessful();
 
         $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($payload['ok']);
+        self::assertSame(CallSession::CALL_MODE_BROWSER, $payload['callMode']);
+        self::assertSame($data['contact']->getPrimaryPhone(), $payload['approvedDestinationNumber']);
+    }
+
+    #[Test]
+    public function prepareBrowserCallRejectsInvalidCsrfToken(): void
+    {
+        $data = $this->seedTenantData();
+        static::getContainer()->set(
+            TelnyxWebrtcTokenService::class,
+            $this->mockTokenService('eyJ0eXAiOiJKV1QifQ.eyJleHAiOjE4OTM0NTYwMDB9.sig'),
+        );
+
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call/prepare',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), ['_token' => 'not-the-token'], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(403);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
         self::assertFalse($payload['ok']);
-        self::assertStringContainsString('rate-limited', strtolower((string) $payload['error']));
+        self::assertSame('Invalid CSRF token.', $payload['error']);
+    }
+
+    #[Test]
+    public function prepareBrowserCallRejectsMissingCsrfToken(): void
+    {
+        $data = $this->seedTenantData();
+        static::getContainer()->set(
+            TelnyxWebrtcTokenService::class,
+            $this->mockTokenService('eyJ0eXAiOiJKV1QifQ.eyJleHAiOjE4OTM0NTYwMDB9.sig'),
+        );
+
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call/prepare',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(403);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($payload['ok']);
+        self::assertSame('Invalid CSRF token.', $payload['error']);
     }
 
     #[Test]
@@ -112,11 +163,13 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
     {
         $data = $this->seedTenantData('+1');
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/prepare',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+        ), ['_token' => $token], [], ['HTTP_ACCEPT' => 'application/json']);
 
         self::assertResponseStatusCodeSame(400);
         $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
@@ -129,11 +182,12 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
     {
         $data = $this->seedTenantData();
         $this->client->loginUser($data['viewerUser']);
+        $this->selectTenant($data['tenant']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/prepare',
             $data['property']->getId(),
             $data['contact']->getId(),
-        ), [], [], ['HTTP_ACCEPT' => 'application/json']);
+        ), ['_token' => 'not-needed'], [], ['HTTP_ACCEPT' => 'application/json']);
 
         self::assertResponseStatusCodeSame(403);
     }
@@ -200,6 +254,23 @@ final class CrmBrowserCallTokenWorkflowTest extends WebTestCase
     private function clearCache(): void
     {
         static::getContainer()->get(\Psr\Cache\CacheItemPoolInterface::class)->clear();
+    }
+
+    private function selectTenant(Tenant $tenant): void
+    {
+        $this->client->request('GET', '/crm/no-tenant');
+        $session = $this->client->getRequest()->getSession();
+        $session->set('crm.current_tenant_id', $tenant->getId());
+        $session->save();
+    }
+
+    private function browserCallToken(Property $property, Contact $contact): string
+    {
+        $this->client->request('GET', sprintf('/crm/properties/%d', $property->getId()));
+        $crawler = $this->client->getCrawler();
+        $tokenNode = $crawler->filter('[data-controller="browser-softphone"][data-browser-softphone-csrf-token-value]')->first();
+
+        return (string) $tokenNode->attr('data-browser-softphone-csrf-token-value');
     }
 
     private function truncateDatabase(): void

@@ -77,16 +77,19 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
         $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
         $browserSession->setTelnyxConnectionId('webrtc-conn-hangup');
+        $browserSession->setTelnyxCallControlId('cc-hangup-test');
         $this->entityManager->persist($browserSession);
         $this->entityManager->flush();
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/hangup',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => $callSession->getProviderSessionId(),
         ], [], ['HTTP_ACCEPT' => 'application/json']);
 
@@ -117,13 +120,15 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
     {
         $data = $this->seedTenantData();
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
 
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/hangup',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => 'nonexistent-provider-id',
         ], [], ['HTTP_ACCEPT' => 'application/json']);
 
@@ -131,8 +136,64 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
     }
 
     #[Test]
+    public function hangupRejectsWhenCallControlIdIsMissing(): void
+    {
+        $data = $this->seedTenantData();
+
+        $callSession = (new CallSession('provider-hangup-missing-control'))
+            ->setProvider('telnyx')
+            ->setTenant($data['tenant'])
+            ->setProperty($data['property'])
+            ->setContact($data['contact'])
+            ->setCsrUser($data['user'])
+            ->setCallMode(CallSession::CALL_MODE_BROWSER)
+            ->setCallState(CallSession::CALL_STATE_CONNECTED)
+            ->setClientPhoneNumber($data['contact']->getPrimaryPhone())
+            ->setStatus('active')
+            ->touch();
+        $this->entityManager->persist($callSession);
+
+        $browserSession = new BrowserSoftphoneSession(
+            $callSession,
+            $data['tenant'],
+            $data['user'],
+            'hangup-missing-control-token',
+        );
+        $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
+        $browserSession->setTelnyxConnectionId('webrtc-conn-hangup-missing');
+        $this->entityManager->persist($browserSession);
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call/hangup',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), [
+            '_token' => $token,
+            'providerSessionId' => $callSession->getProviderSessionId(),
+        ], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(400);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($payload['ok']);
+        self::assertStringContainsString('call control id is not available', strtolower((string) $payload['error']));
+    }
+
+    #[Test]
     public function recordingEndpointStartsCaptureAndSyncsState(): void
     {
+        static::getContainer()->set(
+            TelnyxCallControlService::class,
+            new TelnyxCallControlService(
+                new MockHttpClient(static fn () => new MockResponse(json_encode(['data' => ['ok' => true]]), ['http_code' => 200])),
+                new NullLogger(),
+                'api-key',
+            ),
+        );
+
         $data = $this->seedTenantData();
 
         // Create active browser call session (no capture yet)
@@ -159,16 +220,19 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
         $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
         $browserSession->setTelnyxConnectionId('webrtc-conn-rec');
+        $browserSession->setTelnyxCallControlId('cc-rec-test');
         $this->entityManager->persist($browserSession);
         $this->entityManager->flush();
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/recording',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => $callSession->getProviderSessionId(),
             'action' => 'start',
         ], [], ['HTTP_ACCEPT' => 'application/json']);
@@ -188,8 +252,67 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
     }
 
     #[Test]
+    public function recordingEndpointRejectsWhenCallControlIdIsMissing(): void
+    {
+        $data = $this->seedTenantData();
+
+        $callSession = (new CallSession('provider-rec-missing-control'))
+            ->setProvider('telnyx')
+            ->setTenant($data['tenant'])
+            ->setProperty($data['property'])
+            ->setContact($data['contact'])
+            ->setCsrUser($data['user'])
+            ->setCallMode(CallSession::CALL_MODE_BROWSER)
+            ->setCallState(CallSession::CALL_STATE_CONNECTED)
+            ->setRecordingState(CallSession::RECORDING_STATE_INACTIVE)
+            ->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_INACTIVE)
+            ->setClientPhoneNumber($data['contact']->getPrimaryPhone())
+            ->setStatus('active')
+            ->touch();
+        $this->entityManager->persist($callSession);
+
+        $browserSession = new BrowserSoftphoneSession(
+            $callSession,
+            $data['tenant'],
+            $data['user'],
+            'rec-missing-control-token',
+        );
+        $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
+        $browserSession->setTelnyxConnectionId('webrtc-conn-rec-missing');
+        $this->entityManager->persist($browserSession);
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call/recording',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ), [
+            '_token' => $token,
+            'providerSessionId' => $callSession->getProviderSessionId(),
+            'action' => 'start',
+        ], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertResponseStatusCodeSame(400);
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($payload['ok']);
+        self::assertStringContainsString('call control id is not available', strtolower((string) $payload['error']));
+    }
+
+    #[Test]
     public function recordingEndpointStopsCapture(): void
     {
+        static::getContainer()->set(
+            TelnyxCallControlService::class,
+            new TelnyxCallControlService(
+                new MockHttpClient(static fn () => new MockResponse(json_encode(['data' => ['ok' => true]]), ['http_code' => 200])),
+                new NullLogger(),
+                'api-key',
+            ),
+        );
+
         $data = $this->seedTenantData();
 
         // Create active browser call session (already recording)
@@ -216,16 +339,19 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
         $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
         $browserSession->setTelnyxConnectionId('webrtc-conn-rec-stop');
+        $browserSession->setTelnyxCallControlId('cc-rec-stop-test');
         $this->entityManager->persist($browserSession);
         $this->entityManager->flush();
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/recording',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => $callSession->getProviderSessionId(),
             'action' => 'stop',
         ], [], ['HTTP_ACCEPT' => 'application/json']);
@@ -269,6 +395,7 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
         $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
         $browserSession->setTelnyxConnectionId('webrtc-conn-dtmf');
+        $browserSession->setTelnyxCallControlId('cc-dtmf-test');
         $this->entityManager->persist($browserSession);
         $this->entityManager->flush();
 
@@ -283,12 +410,14 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/dtmf',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => $callSession->getProviderSessionId(),
             'digits' => '1*9#0',
         ], [], ['HTTP_ACCEPT' => 'application/json']);
@@ -325,6 +454,7 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
         $browserSession->setConnectionState(BrowserSoftphoneSession::CONNECTION_STATE_READY);
         $browserSession->setTelnyxConnectionId('webrtc-conn-mute');
+        $browserSession->setTelnyxCallControlId('cc-mute-test');
         $this->entityManager->persist($browserSession);
         $this->entityManager->flush();
 
@@ -339,12 +469,14 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         );
 
         $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $token = $this->browserCallToken($data['property'], $data['contact']);
         $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/browser-call/mute',
             $data['property']->getId(),
             $data['contact']->getId(),
         ), [
-            '_token' => '',
+            '_token' => $token,
             'providerSessionId' => $callSession->getProviderSessionId(),
             'action' => 'mute',
         ], [], ['HTTP_ACCEPT' => 'application/json']);
@@ -422,5 +554,22 @@ final class CrmBrowserCallControlWorkflowTest extends WebTestCase
         }
 
         $connection->executeStatement('TRUNCATE '.implode(', ', $tables).' RESTART IDENTITY CASCADE');
+    }
+
+    private function selectTenant(Tenant $tenant): void
+    {
+        $this->client->request('GET', '/crm/no-tenant');
+        $session = $this->client->getRequest()->getSession();
+        $session->set('crm.current_tenant_id', $tenant->getId());
+        $session->save();
+    }
+
+    private function browserCallToken(Property $property, Contact $contact): string
+    {
+        $this->client->request('GET', sprintf('/crm/properties/%d', $property->getId()));
+        $crawler = $this->client->getCrawler();
+        $tokenNode = $crawler->filter('[data-controller="browser-softphone"][data-browser-softphone-csrf-token-value]')->first();
+
+        return (string) $tokenNode->attr('data-browser-softphone-csrf-token-value');
     }
 }
