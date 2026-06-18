@@ -6,7 +6,11 @@ namespace App\Tests\Functional;
 
 use App\Entity\CallRecording;
 use App\Entity\CallSession;
+use App\Entity\CallSummary;
 use App\Entity\CallTranscript;
+use App\Entity\CallTranscriptSegment;
+use App\Entity\Equipment;
+use App\Entity\EquipmentServiceRecord;
 use App\Entity\Contact;
 use App\Entity\Estimate;
 use App\Entity\InvoiceAccountingSyncRecord;
@@ -40,6 +44,7 @@ final class CrmTenantIsolationTest extends WebTestCase
         $this->client = static::createClient();
         $this->entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $this->truncateDatabase();
+        $this->entityManager->clear();
         $this->client->disableReboot();
     }
 
@@ -97,7 +102,7 @@ final class CrmTenantIsolationTest extends WebTestCase
         self::assertResponseStatusCodeSame(403);
     }
 
-    public function testClickToCallRequiresAllowedMembershipRole(): void
+    public function testBridgeCallRequiresAllowedMembershipRole(): void
     {
         $data = $this->seedTenantData();
 
@@ -115,12 +120,57 @@ final class CrmTenantIsolationTest extends WebTestCase
 
         $this->client->loginUser($accountingUser);
         $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/bridge-call',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ));
+
+        self::assertResponseStatusCodeSame(403);
+
+        $this->client->request('POST', sprintf(
             '/crm/properties/%d/contacts/%d/click-to-call',
             $data['property']->getId(),
             $data['contact']->getId(),
         ));
 
         self::assertResponseStatusCodeSame(403);
+
+        $this->client->request('POST', sprintf(
+            '/crm/properties/%d/contacts/%d/browser-call',
+            $data['property']->getId(),
+            $data['contact']->getId(),
+        ));
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    public function testPropertyPageShowsBrowserAndBridgeCallButtons(): void
+    {
+        $data = $this->seedTenantData();
+        $this->client->loginUser($data['ownerUser']);
+        $this->client->request('GET', '/crm');
+        $this->client->getRequest()->getSession()->set('crm.current_tenant_id', $data['tenant']->getId());
+        $this->client->getRequest()->getSession()->save();
+
+        $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Browser Call');
+        self::assertSelectorTextContains('body', 'Bridge Call');
+        self::assertSelectorTextContains('body', 'Browser Softphone');
+        self::assertSelectorTextContains('body', 'Place Browser Call');
+        self::assertSelectorTextContains('body', 'Mute');
+        self::assertSelectorTextContains('body', 'Keypad');
+        self::assertSelectorTextContains('body', 'Start Recording');
+        self::assertSelectorTextContains('body', 'Hang Up');
+        self::assertSelectorTextContains('body', 'Recording inactive');
+        self::assertSelectorTextContains('body', 'Connection state:');
+        self::assertSelectorTextContains('body', 'Disconnected');
+        self::assertSelectorTextContains('body', 'Call state:');
+        self::assertSelectorTextContains('body', 'Idle');
+        self::assertSelectorExists(sprintf('form[action="/crm/properties/%d/contacts/%d/browser-call"]', $data['property']->getId(), $data['contact']->getId()));
+        self::assertSelectorExists(sprintf('form[action="/crm/properties/%d/contacts/%d/bridge-call"]', $data['property']->getId(), $data['contact']->getId()));
+        self::assertSelectorExists('[data-controller="browser-softphone"]');
     }
 
     public function testPendingInvitationMustBeAcceptedBeforeTenantAccessIsEnabled(): void
@@ -207,6 +257,12 @@ final class CrmTenantIsolationTest extends WebTestCase
         self::assertSelectorTextContains('body', 'Communication Timeline');
         self::assertSelectorTextContains('body', 'Transcript Messages');
         self::assertSelectorTextContains('body', 'Test transcript');
+        self::assertSelectorTextContains('body', 'Call Insights');
+        self::assertSelectorTextContains('body', 'Suggested contacts');
+        self::assertSelectorTextContains('body', 'Suggested properties');
+        self::assertSelectorTextContains('body', 'Tenant Contact');
+        self::assertSelectorTextContains('body', 'Quote Requested');
+        self::assertSelectorTextContains('body', 'Call Tenant Contact back to confirm the estimate and next service window.');
 
         $noteToken = $crawler->filter('form[action="/crm/properties/'.$data['property']->getId().'/timeline/notes"] input[name="_token"]')->attr('value');
         $this->client->request('POST', sprintf('/crm/properties/%d/timeline/notes', $data['property']->getId()), [
@@ -227,12 +283,47 @@ final class CrmTenantIsolationTest extends WebTestCase
         $data = $this->seedTenantData();
 
         $this->client->loginUser($data['ownerUser']);
-        $this->client->request('GET', '/crm/communications/search?q=Test transcript');
+        $this->client->request('GET', '/crm/communications/search?q=furnace filter');
 
         self::assertResponseIsSuccessful();
         self::assertSelectorTextContains('body', 'Communication Search');
-        self::assertSelectorTextContains('body', 'Test transcript');
+        self::assertSelectorTextContains('body', 'Transcript match');
+        self::assertSelectorTextContains('body', 'Please schedule a callback about the furnace filter.');
         self::assertSelectorTextContains('body', $data['property']->getDisplayAddress());
+    }
+
+    public function testEstimateAndPropertySuggestionCardsRender(): void
+    {
+        $data = $this->seedTenantData();
+
+        $equipment = (new Equipment($data['tenant'], $data['property'], Equipment::TYPE_FURNACE))
+            ->setInstalledAt(new \DateTimeImmutable('2005-01-01'))
+            ->setStatus(Equipment::STATUS_ACTIVE);
+        $this->entityManager->persist($equipment);
+        $this->entityManager->persist(
+            (new EquipmentServiceRecord($data['tenant'], $data['property']))
+                ->setEquipment($equipment)
+                ->setCompletedAt(new \DateTimeImmutable('2026-01-01'))
+                ->setRecommendedReplacementNotes('Replacement recommended within the next season.')
+                ->setServiceType('Furnace inspection'),
+        );
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['ownerUser']);
+
+        $this->client->request('GET', '/crm/estimates/'.$data['estimate']->getId());
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Sales and Service Suggestions');
+        self::assertSelectorTextContains('body', 'Suggested Line Items');
+        self::assertSelectorTextContains('body', 'Furnace diagnostic and repair');
+        self::assertSelectorTextContains('body', 'Follow-up Suggestions');
+
+        $this->client->request('GET', '/crm/properties/'.$data['property']->getId());
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Service Suggestions');
+        self::assertSelectorTextContains('body', 'Equipment Replacement Flags');
+        self::assertSelectorTextContains('body', 'Furnace');
+        self::assertSelectorTextContains('body', 'High');
     }
 
     public function testQuoteAndInvoiceEventsAppearInTimeline(): void
@@ -525,6 +616,32 @@ final class CrmTenantIsolationTest extends WebTestCase
         self::assertSelectorTextContains('body', '"type": "ACCREC"');
     }
 
+    public function testReportingDashboardShowsRevenueAndThroughputMetrics(): void
+    {
+        $data = $this->seedTenantData();
+        $this->entityManager->flush();
+        $this->entityManager->clear();
+
+        $ownerUser = static::getContainer()->get(UserRepository::class)->findOneBy(['email' => $data['ownerUser']->getEmail()]);
+        self::assertInstanceOf(User::class, $ownerUser);
+        $this->client->loginUser($ownerUser);
+        $this->client->request('GET', '/crm/reporting');
+
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextContains('body', 'Reporting Dashboard');
+        self::assertSelectorTextContains('body', 'Tenant One · Last 90 days');
+        self::assertSelectorTextContains('body', 'Estimates');
+        self::assertSelectorTextContains('body', 'Quotes Sent');
+        self::assertSelectorTextContains('body', 'Pipeline');
+        self::assertSelectorTextContains('body', 'Calls');
+        self::assertSelectorTextContains('body', 'Jobs Completed');
+        self::assertSelectorTextContains('body', 'Quote Acceptance');
+        self::assertSelectorTextContains('body', 'Revenue Pipeline');
+        self::assertSelectorTextContains('body', 'Call Volume');
+        self::assertSelectorTextContains('body', 'Service Throughput by Technician');
+        self::assertSelectorTextContains('body', 'Service Throughput by Dispatcher');
+    }
+
     public function testTenantAdminCanEditInvoiceSettingsFromProfile(): void
     {
         $data = $this->seedTenantData();
@@ -583,7 +700,8 @@ final class CrmTenantIsolationTest extends WebTestCase
      *   quote: Quote,
      *   invoice: Invoice,
      *   recording: CallRecording,
-     *   transcript: CallTranscript
+     *   transcript: CallTranscript,
+     *   summary: CallSummary
      * }
      */
     private function seedTenantData(): array
@@ -646,6 +764,7 @@ final class CrmTenantIsolationTest extends WebTestCase
             ->setTenant($tenant)
             ->setProperty($property)
             ->setContact($contact)
+            ->setInboundTo('+14165550123')
             ->setFlowType(CallSession::FLOW_TYPE_CLICK_TO_CALL)
             ->setStatus('completed');
         $this->entityManager->persist($session);
@@ -660,6 +779,28 @@ final class CrmTenantIsolationTest extends WebTestCase
             ->setCallSession($session)
             ->setTranscriptText('Test transcript');
         $this->entityManager->persist($transcript);
+        $segment = (new CallTranscriptSegment($transcript, 1, 'Please schedule a callback about the furnace filter.'))
+            ->setSpeakerRole('customer')
+            ->setOccurredAt(new \DateTimeImmutable('2026-06-16 12:00:00'));
+        $this->entityManager->persist($segment);
+
+        $summary = (new CallSummary($transcript))
+            ->setStatus('available')
+            ->setSummaryText('Tenant Contact asked for a repair estimate and wants a callback tomorrow.')
+            ->setSummaryJson([
+                'summary' => 'Tenant Contact asked for a repair estimate and wants a callback tomorrow.',
+                'customer_intent' => 'Request a repair estimate and follow-up callback.',
+                'participants' => ['Tenant Contact'],
+                'equipment_mentions' => ['Furnace'],
+                'appointment_mentions' => ['callback tomorrow'],
+                'quote_or_price_mentions' => ['estimate'],
+                'action_items' => ['Call Tenant Contact back to confirm the estimate and next service window.'],
+                'urgency' => 'high',
+                'sentiment' => 'neutral',
+                'recommended_disposition' => 'quote_requested',
+                'next_step' => 'Call back to confirm the estimate and next service window.',
+            ]);
+        $this->entityManager->persist($summary);
 
         $this->entityManager->flush();
 
@@ -676,6 +817,7 @@ final class CrmTenantIsolationTest extends WebTestCase
             'invoice' => $invoice,
             'recording' => $recording,
             'transcript' => $transcript,
+            'summary' => $summary,
         ];
     }
 }

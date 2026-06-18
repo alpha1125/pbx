@@ -1,0 +1,50 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Campaigns{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-0">Campaigns</h1>
+            <p class="text-body-secondary mb-0">Create and manage outreach planning records for your tenant.</p>
+        </div>
+        <a class="btn btn-primary" href="{{ path('crm_campaign_new') }}">Add Campaign</a>
+    </div>
+
+    {% if campaigns|length > 0 %}
+        <div class="list-group list-group-flush">
+            {% for campaign in campaigns %}
+                <div class="list-group-item px-0 d-flex flex-wrap justify-content-between align-items-start gap-3">
+                    <div class="d-flex flex-column">
+                        <span class="fw-semibold">{{ campaign.name }}</span>
+                        <span class="small text-body-secondary">
+                            {{ campaign.campaignTypeLabel }}
+                            {% if campaign.scheduledDate %}
+                                · Scheduled {{ campaign.scheduledDate|date('Y-m-d') }}
+                            {% else %}
+                                · No scheduled date
+                            {% endif %}
+                        </span>
+                        <span class="small text-body-secondary">{{ campaign.audienceDescription }}</span>
+                        {% if campaign.notes %}
+                            <span class="small text-body-secondary mt-1">{{ campaign.notes }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex flex-column align-items-end gap-2">
+                        <span class="badge text-bg-{% if campaign.status == 'draft' %}secondary{% elseif campaign.status == 'scheduled' %}primary{% elseif campaign.status == 'approved' %}info{% elseif campaign.status == 'completed' %}success{% else %}dark{% endif %}">
+                            {{ campaign.statusLabel }}
+                        </span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_campaign_edit', {id: campaign.id}) }}">Edit</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="card shadow-sm mt-3">
+            <div class="card-body text-center py-5">
+                <p class="text-body-secondary mb-2">No campaigns yet.</p>
+                <a class="btn btn-primary" href="{{ path('crm_campaign_new') }}">Create your first campaign</a>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

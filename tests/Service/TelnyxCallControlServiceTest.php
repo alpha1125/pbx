@@ -63,4 +63,23 @@ final class TelnyxCallControlServiceTest extends TestCase
             'transcription_tracks' => 'both',
         ], $request[2]);
     }
+
+    public function testStopTranscriptionUsesDedicatedAction(): void
+    {
+        $request = null;
+        $client = new MockHttpClient(
+            static function (string $method, string $url, array $options) use (&$request): MockResponse {
+                $request = [$method, $url, json_decode($options['body'], true)];
+
+                return new MockResponse('{}', ['http_code' => 200]);
+            },
+        );
+
+        (new TelnyxCallControlService($client, new NullLogger(), 'test-key'))
+            ->stopTranscription('control-id');
+
+        self::assertSame('POST', $request[0]);
+        self::assertStringEndsWith('/calls/control-id/actions/transcription_stop', $request[1]);
+        self::assertSame([], $request[2]);
+    }
 }

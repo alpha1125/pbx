@@ -10,9 +10,11 @@ use App\Repository\EstimateLineItemRepository;
 use App\Repository\EstimateRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
+use App\Service\CrmSuggestionService;
 use App\Service\EstimateDuplicationService;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\EstimateToQuoteService;
+use App\Service\CommunicationTimelineProjector;
 use App\Service\MoneyCalculator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -29,6 +31,8 @@ final class EstimateController extends AbstractController
         CurrentTenantProviderInterface $tenantProvider,
         EstimateRepository $estimateRepository,
         EstimateLineItemRepository $estimateLineItemRepository,
+        CommunicationTimelineProjector $timelineProjector,
+        CrmSuggestionService $suggestionService,
     ): Response {
         $tenant = $tenantProvider->requireCurrentTenant();
         $estimate = $estimateRepository->findOneByTenantAndId($tenant, $id);
@@ -37,11 +41,13 @@ final class EstimateController extends AbstractController
         }
 
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $estimate);
+        $timelineProjector->syncProperty($estimate->getProperty());
 
         return $this->render('crm/estimate/show.html.twig', [
             'tenant' => $tenant,
             'estimate' => $estimate,
             'lineItems' => $estimateLineItemRepository->findByEstimate($estimate),
+            'suggestions' => $suggestionService->buildForEstimate($estimate),
         ]);
     }
 

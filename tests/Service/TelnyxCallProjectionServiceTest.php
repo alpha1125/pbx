@@ -10,6 +10,7 @@ use App\Entity\TelnyxEvent;
 use App\Repository\CallLegRepository;
 use App\Repository\CallSessionRepository;
 use App\Service\ClientStateService;
+use App\Service\CallEventEngineService;
 use App\Service\TelnyxCallProjectionService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -20,6 +21,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
     private CallSessionRepository&MockObject $sessionRepository;
     private CallLegRepository&MockObject $legRepository;
     private EntityManagerInterface&MockObject $entityManager;
+    private CallEventEngineService&MockObject $callEventEngine;
     private TelnyxCallProjectionService $projection;
 
     protected function setUp(): void
@@ -27,11 +29,14 @@ final class TelnyxCallProjectionServiceTest extends TestCase
         $this->sessionRepository = $this->createMock(CallSessionRepository::class);
         $this->legRepository = $this->createMock(CallLegRepository::class);
         $this->entityManager = $this->createMock(EntityManagerInterface::class);
+        $this->callEventEngine = $this->createMock(CallEventEngineService::class);
         $this->projection = new TelnyxCallProjectionService(
             $this->sessionRepository,
             $this->legRepository,
             $this->entityManager,
             new ClientStateService(),
+            $this->createStub(\App\Service\CommunicationTimelineProjector::class),
+            $this->callEventEngine,
         );
     }
 
@@ -51,6 +56,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
                 $persisted[] = $entity;
             });
         $this->entityManager->expects(self::once())->method('flush');
+        $this->callEventEngine->expects(self::once())->method('record');
 
         $this->projection->project($event, $this->data([
             'direction' => 'incoming',
@@ -65,6 +71,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
         self::assertSame($persisted[0], $event->getCallSession());
         self::assertSame($persisted[1], $event->getCallLeg());
         self::assertSame('initiated', $persisted[0]->getStatus());
+        self::assertSame(CallSession::CALL_STATE_INITIATED, $persisted[0]->getCallState());
         self::assertSame('+14165550100', $persisted[0]->getInboundFrom());
         self::assertSame('+12892079888', $persisted[0]->getInboundTo());
         self::assertSame('2026-06-13T10:00:00+00:00', $persisted[0]->getStartedAt()?->format(DATE_ATOM));
@@ -82,6 +89,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
 
         self::assertSame('answered', $session->getStatus());
         self::assertSame('answered', $leg->getStatus());
+        self::assertSame(CallSession::CALL_STATE_CONNECTED, $session->getCallState());
         self::assertSame('2026-06-13T10:01:00+00:00', $session->getAnsweredAt()?->format(DATE_ATOM));
         self::assertSame('2026-06-13T10:01:00+00:00', $leg->getAnsweredAt()?->format(DATE_ATOM));
     }
@@ -90,6 +98,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
     {
         [$session, $leg] = $this->existingCall();
         $session->setStatus('bridged');
+        $session->setCallState(CallSession::CALL_STATE_CONNECTED);
         $leg->setStatus('bridged');
         $this->expectExistingCall($session, $leg);
 
@@ -100,6 +109,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
 
         self::assertSame('bridged', $session->getStatus());
         self::assertSame('bridged', $leg->getStatus());
+        self::assertSame(CallSession::CALL_STATE_CONNECTED, $session->getCallState());
     }
 
     public function testHangupCompletesLastActiveLegAndSession(): void
@@ -120,6 +130,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
 
         self::assertSame('completed', $leg->getStatus());
         self::assertSame('completed', $session->getStatus());
+        self::assertSame(CallSession::CALL_STATE_COMPLETED, $session->getCallState());
         self::assertSame('normal_clearing', $leg->getHangupCause());
         self::assertSame('caller', $leg->getHangupSource());
         self::assertSame('200', $leg->getSipHangupCause());
@@ -131,6 +142,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
     {
         [$session, $leg] = $this->existingCall();
         $session->setStatus('bridged');
+        $session->setCallState(CallSession::CALL_STATE_CONNECTED);
         $this->expectExistingCall($session, $leg);
         $this->legRepository->expects(self::once())->method('hasOtherActiveLegs')->willReturn(true);
 
@@ -141,6 +153,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
 
         self::assertSame('completed', $leg->getStatus());
         self::assertSame('bridged', $session->getStatus());
+        self::assertSame(CallSession::CALL_STATE_CONNECTED, $session->getCallState());
         self::assertNull($session->getEndedAt());
     }
 
@@ -148,6 +161,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
     {
         [$session, $leg] = $this->existingCall();
         $session->setStatus('answered');
+        $session->setCallState(CallSession::CALL_STATE_CONNECTED);
         $leg->setStatus('answered');
         $this->expectExistingCall($session, $leg);
 
@@ -158,7 +172,53 @@ final class TelnyxCallProjectionServiceTest extends TestCase
 
         self::assertSame('answered', $session->getStatus());
         self::assertSame('answered', $leg->getStatus());
+        self::assertSame(CallSession::CALL_STATE_CONNECTED, $session->getCallState());
         self::assertSame('2026-06-13T10:07:00+00:00', $session->getLastEventAt()?->format(DATE_ATOM));
+    }
+
+    public function testRingingTransitionsCallStateToRinging(): void
+    {
+        [$session, $leg] = $this->existingCall();
+        $this->expectExistingCall($session, $leg);
+
+        $this->projection->project(
+            $this->event('event-9', 'call.ringing'),
+            $this->data([], '2026-06-13T10:00:30+00:00'),
+        );
+
+        self::assertSame('ringing', $session->getStatus());
+        self::assertSame(CallSession::CALL_STATE_RINGING, $session->getCallState());
+        self::assertSame('ringing', $leg->getStatus());
+    }
+
+    public function testFailedTransitionsCallStateToFailed(): void
+    {
+        [$session, $leg] = $this->existingCall();
+        $this->expectExistingCall($session, $leg);
+
+        $this->projection->project(
+            $this->event('event-10', 'call.failed'),
+            $this->data(['hangup_source' => 'callee', 'hangup_cause' => 'busy'], '2026-06-13T10:01:30+00:00'),
+        );
+
+        self::assertSame('failed', $session->getStatus());
+        self::assertSame(CallSession::CALL_STATE_FAILED, $session->getCallState());
+        self::assertSame('failed', $leg->getStatus());
+    }
+
+    public function testCompletedTransitionsCallStateToCompleted(): void
+    {
+        [$session, $leg] = $this->existingCall();
+        $this->expectExistingCall($session, $leg);
+
+        $this->projection->project(
+            $this->event('event-11', 'call.completed'),
+            $this->data(['end_time' => '2026-06-13T10:02:30+00:00'], '2026-06-13T10:02:31+00:00'),
+        );
+
+        self::assertSame('completed', $session->getStatus());
+        self::assertSame(CallSession::CALL_STATE_COMPLETED, $session->getCallState());
+        self::assertSame('completed', $leg->getStatus());
     }
 
     public function testMalformedDatesFallBackWithoutBreakingProjection(): void
@@ -183,6 +243,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
         $inboundSession = new CallSession('inbound-session');
         $outboundSession = new CallSession('session-1');
         $leg = new CallLeg($outboundSession, 'leg-1');
+        $this->callEventEngine->expects(self::once())->method('record');
         $this->sessionRepository->expects(self::exactly(2))
             ->method('findOneByProviderSessionId')
             ->willReturnMap([
@@ -225,6 +286,7 @@ final class TelnyxCallProjectionServiceTest extends TestCase
             ->method('findOneByProviderLegId')
             ->willReturn($leg);
         $this->entityManager->expects(self::once())->method('flush');
+        $this->callEventEngine->expects(self::once())->method('record');
     }
 
     private function event(string $id, string $type): TelnyxEvent

@@ -1,0 +1,68 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Maintenance Plans{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="h2 mb-0">Maintenance Plans</h1>
+            <p class="text-body-secondary mb-0">Create and manage service maintenance plans for your customers.</p>
+        </div>
+        <a class="btn btn-primary" href="{{ path('crm_maintenance_plan_new') }}">Add Plan</a>
+    </div>
+
+    {% if plans|length > 0 %}
+        <h2 class="h5 mb-3">Active Plans</h2>
+        <div class="list-group list-group-flush mb-4">
+            {% for plan in plans %}
+                <div class="list-group-item px-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div class="d-flex flex-column">
+                        <span class="fw-semibold">{{ plan.name }}</span>
+                        <span class="small text-body-secondary">
+                            {{ plan.planTypeLabel|replace({'_':' '})|title }} · Every {{ plan.visitFrequencyDays }} days · {% if plan.discountPercentage > 0 %}{{ plan.discountPercentage }}% discount{% else %}No discount{% endif %}
+                        </span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="badge text-bg-success">Active</span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_maintenance_plan_edit', {id: plan.id}) }}">Edit</a>
+                        <form method="post" action="{{ path('crm_maintenance_plan_deactivate', {id: plan.id}) }}" onsubmit="return confirm('Deactivate this plan?');">
+                            <input type="hidden" name="_token" value="{{ csrf_token('crm_maintenance_plan_deactivate_' ~ plan.id) }}">
+                            <button class="btn btn-sm btn-outline-secondary" type="submit">Deactivate</button>
+                        </form>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if drafts|length > 0 %}
+        <h2 class="h5 mb-3">Draft Plans</h2>
+        <div class="list-group list-group-flush">
+            {% for plan in drafts %}
+                <div class="list-group-item px-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div class="d-flex flex-column">
+                        <span class="fw-semibold">{{ plan.name }}</span>
+                        <span class="small text-body-secondary">{{ plan.planTypeLabel|replace({'_':' '})|title }} · Inactive</span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="badge text-bg-secondary">Draft</span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ path('crm_maintenance_plan_edit', {id: plan.id}) }}">Edit</a>
+                        <form method="post" action="{{ path('crm_maintenance_plan_activate', {id: plan.id}) }}" onsubmit="return confirm('Activate this plan?');">
+                            <input type="hidden" name="_token" value="{{ csrf_token('crm_maintenance_plan_activate_' ~ plan.id) }}">
+                            <button class="btn btn-sm btn-outline-success" type="submit">Activate</button>
+                        </form>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if plans|length == 0 and drafts|length == 0 %}
+        <div class="card shadow-sm mt-3">
+            <div class="card-body text-center py-5">
+                <p class="text-body-secondary mb-2">No maintenance plans yet.</p>
+                <a class="btn btn-primary" href="{{ path('crm_maintenance_plan_new') }}">Create your first plan</a>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

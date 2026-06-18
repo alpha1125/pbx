@@ -1,0 +1,74 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_campaign_index') }}">Back to Campaigns</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-4">{{ title }}</h1>
+
+                    {% if errors|length > 0 %}
+                        <div class="alert alert-danger" role="alert">
+                            Please fix the following:
+                            <ul class="mb-0">
+                                {% for err in errors %}
+                                    <li>{{ err.propertyPath ~ ': ' ~ err.message }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{% if campaign.id %}{{ csrf_token('crm_campaign_form_' ~ campaign.id) }}{% else %}{{ csrf_token('crm_campaign_form') }}{% endif %}">
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="name">Campaign Name</label>
+                            <input class="form-control" id="name" name="name" value="{{ campaign.name }}" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="campaignType">Campaign Type</label>
+                            <select class="form-select" id="campaignType" name="campaignType" required>
+                                {% for value, label in campaignTypeChoices %}
+                                    <option value="{{ value }}" {% if campaign.campaignType == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label" for="audienceDescription">Audience Description</label>
+                            <textarea class="form-control" id="audienceDescription" name="audienceDescription" rows="3" required>{{ campaign.audienceDescription }}</textarea>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="scheduledDate">Scheduled Date</label>
+                            <input class="form-control" id="scheduledDate" name="scheduledDate" type="date" value="{{ campaign.scheduledDate ? campaign.scheduledDate|date('Y-m-d') : '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="status">Status</label>
+                            <select class="form-select" id="status" name="status" required>
+                                {% for value, label in statusChoices %}
+                                    <option value="{{ value }}" {% if campaign.status == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label" for="notes">Notes</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="4">{{ campaign.notes }}</textarea>
+                        </div>
+
+                        <div class="col-12 mt-4 d-flex gap-2">
+                            <button class="btn btn-primary" type="submit">Save</button>
+                            <a class="btn btn-outline-secondary" href="{{ path('crm_campaign_index') }}">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

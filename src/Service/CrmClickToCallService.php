@@ -25,7 +25,7 @@ class CrmClickToCallService
     {
         $user = $this->security->getUser();
         if (!$user instanceof User) {
-            throw new \RuntimeException('You must be logged in to place a CRM click-to-call.');
+            throw new \RuntimeException('You must be logged in to place a CRM bridge call.');
         }
 
         if (null === $user->getCellPhone() || '' === trim($user->getCellPhone())) {
@@ -42,8 +42,14 @@ class CrmClickToCallService
             $user->getCellPhone(),
         );
 
-        $session = $request->getCallSession() ?? throw new \RuntimeException('Click-to-call did not create a call session.');
+        $session = $request->getCallSession() ?? throw new \RuntimeException('Bridge call did not create a call session.');
         $session
+            ->setCallMode(CallSession::CALL_MODE_BRIDGE)
+            ->setCallState(CallSession::CALL_STATE_INITIATED)
+            ->setRecordingState(CallSession::RECORDING_STATE_INACTIVE)
+            ->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_INACTIVE)
+            ->setClientPhoneNumber($contact->getPrimaryPhone())
+            ->setCsrUser($user)
             ->setTenant($property->getTenant())
             ->setProperty($property)
             ->setContact($contact)
@@ -54,7 +60,7 @@ class CrmClickToCallService
             $property->getTenant(),
             'call_session',
             (string) ($session->getId() ?? 'new'),
-            'call.click_to_call_started',
+            'call.bridge_call_started',
             null,
             ['status' => $session->getStatus(), 'flowType' => $session->getFlowType()],
             ['propertyId' => $property->getId(), 'contactId' => $contact->getId()],

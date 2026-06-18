@@ -35,12 +35,15 @@
                                 <a class="nav-link" href="{{ path('crm_job_queue') }}">Work Queue</a>
                             {% endif %}
                             <a class="nav-link" href="{{ path('crm_property_index') }}">Properties</a>
+                            <a class="nav-link" href="{{ path('crm_retention_opportunity_index') }}">Opportunities</a>
+                            <a class="nav-link" href="{{ path('crm_campaign_index') }}">Campaigns</a>
                             <a class="nav-link" href="{{ path('crm_invoice_aging') }}">Invoices</a>
                             <a class="nav-link" href="{{ path('crm_rfq_index') }}">RFQs</a>
                             <a class="nav-link" href="{{ path('crm_rfq_operator_index') }}">RFQ Ops</a>
                             {% if crmCurrentMembership and ('ROLE_TENANT_ADMIN' in crmCurrentMembership.roles or 'ROLE_SALES' in crmCurrentMembership.roles or 'ROLE_DISPATCH' in crmCurrentMembership.roles) %}
                                 <a class="nav-link" href="{{ path('crm_rfq_analytics_index') }}">RFQ Analytics</a>
                                 <a class="nav-link" href="{{ path('crm_procurement_intelligence_index') }}">Procurement Intelligence</a>
+                                <a class="nav-link" href="{{ path('crm_reporting_dashboard') }}">Reporting</a>
                             {% endif %}
                             <a class="nav-link" href="{{ path('crm_vendor_portal') }}">Vendor Portal</a>
                             <a class="nav-link" href="{{ path('crm_rfq_invitation_index') }}">RFQ Invitations</a>

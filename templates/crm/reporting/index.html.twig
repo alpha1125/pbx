@@ -1,0 +1,204 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Reporting Dashboard{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h2 mb-1">Reporting Dashboard</h1>
+            <p class="text-body-secondary mb-0">{{ tenant.name }} · Last {{ report.periodDays }} days</p>
+        </div>
+        <form method="get" class="d-flex gap-2">
+            {% for days in [30, 90, 180, 365] %}
+                <button class="btn btn-sm {{ report.periodDays == days ? 'btn-primary' : 'btn-outline-primary' }}" type="submit" name="days" value="{{ days }}">{{ days }}d</button>
+            {% endfor %}
+        </form>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Estimates</div><div class="h3 mb-0">{{ report.summary.estimatesCreated }}</div><div class="small">Converted: {{ report.summary.estimatesConverted }}{% if report.summary.leadToQuoteConversionRate is not null %} · {{ (report.summary.leadToQuoteConversionRate * 100)|number_format(1) }}%{% endif %}</div></div></div>
+        </div>
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Quotes Sent</div><div class="h3 mb-0">{{ report.summary.quotesSent }}</div><div class="small">Accepted: {{ report.summary.quotesAccepted }}{% if report.summary.quoteAcceptanceRate is not null %} · {{ (report.summary.quoteAcceptanceRate * 100)|number_format(1) }}%{% endif %}</div></div></div>
+        </div>
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Pipeline</div><div class="h3 mb-0">${{ (report.summary.pipelineValueCents / 100)|number_format(0) }}</div><div class="small">Open ${{ (report.summary.openPipelineCents / 100)|number_format(0) }} · Won ${{ (report.summary.wonPipelineCents / 100)|number_format(0) }}</div></div></div>
+        </div>
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Calls</div><div class="h3 mb-0">{{ report.summary.callsTotal }}</div><div class="small">Tenant communication volume</div></div></div>
+        </div>
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Jobs Completed</div><div class="h3 mb-0">{{ report.summary.jobsCompleted }}</div><div class="small">Assigned: {{ report.summary.jobsAssigned }}</div></div></div>
+        </div>
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm h-100"><div class="card-body"><div class="small text-body-secondary">Quote Acceptance</div><div class="h3 mb-0">{% if report.summary.quoteAcceptanceRate is not null %}{{ (report.summary.quoteAcceptanceRate * 100)|number_format(1) }}%{% else %}n/a{% endif %}</div><div class="small">Revenue decision rate</div></div></div>
+        </div>
+    </div>
+
+    <div id="revenue-opportunity-dashboard" class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                    <h2 class="h5 mb-1">Revenue Opportunity Dashboard</h2>
+                    <p class="text-body-secondary mb-0">Tenant-scoped retention opportunities grouped by follow-up theme.</p>
+                </div>
+                <span class="badge text-bg-secondary">Read only</span>
+            </div>
+
+            <div class="row g-3">
+                {% for card in report.revenueOpportunityCards %}
+                    <div class="col-lg-6 col-xxl-4">
+                        <div class="border rounded-3 h-100 p-3">
+                            <div class="d-flex justify-content-between gap-3 mb-3">
+                                <div>
+                                    <div class="fw-semibold">{{ card.label }}</div>
+                                    <div class="small text-body-secondary">{{ card.description }}</div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="h4 mb-0">{{ card.count }}</div>
+                                    <div class="small text-body-secondary">
+                                        {% if card.estimatedValueCents is not null %}
+                                            ${{ (card.estimatedValueCents / 100)|number_format(0) }}
+                                        {% else %}
+                                            n/a
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="small text-body-secondary mb-2">
+                                {{ card.count }} open opportunit{{ card.count == 1 ? 'y' : 'ies' }}
+                            </div>
+
+                            <ul class="list-group list-group-flush">
+                                {% for item in card.items %}
+                                    <li class="list-group-item px-0">
+                                        <div class="d-flex justify-content-between gap-3">
+                                            <div class="min-w-0">
+                                                <a href="{{ path('crm_property_show', {id: item.propertyId}) }}" class="text-decoration-none fw-semibold">{{ item.propertyLabel }}</a>
+                                                <div class="small text-body-secondary">{{ item.opportunityTypeLabel }}</div>
+                                                <div class="small">{{ item.reason }}</div>
+                                                <div class="small text-body-secondary">
+                                                    Detected {{ item.detectedAt|date('Y-m-d H:i') }}
+                                                    {% if item.contactLabel %} · Contact: {{ item.contactLabel }}{% endif %}
+                                                    {% if item.equipmentLabel %} · Equipment: {{ item.equipmentLabel|replace({'_': ' '})|title }}{% endif %}
+                                                </div>
+                                            </div>
+                                            <div class="text-end">
+                                                <span class="badge text-bg-warning">{{ item.statusLabel }}</span>
+                                                {% if item.estimatedValueCents is not null %}
+                                                    <div class="small text-body-secondary mt-1">${{ (item.estimatedValueCents / 100)|number_format(0) }}</div>
+                                                {% elseif item.invoiceCount is not null %}
+                                                    <div class="small text-body-secondary mt-1">{{ item.invoiceCount }} invoice{{ item.invoiceCount == 1 ? '' : 's' }}</div>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </li>
+                                {% else %}
+                                    <li class="list-group-item px-0 text-body-secondary">No opportunities in this category.</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Revenue Pipeline</h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Status</th><th class="text-end">Quotes</th><th class="text-end">Value</th></tr></thead>
+                            <tbody>
+                                {% for row in report.pipelineRows %}
+                                    <tr>
+                                        <td>{{ row.label }}</td>
+                                        <td class="text-end">{{ row.count }}</td>
+                                        <td class="text-end">${{ (row.totalCents / 100)|number_format(0) }}</td>
+                                    </tr>
+                                {% else %}
+                                    <tr><td colspan="3" class="text-body-secondary">No quotes in the selected period.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Call Volume</h2>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <h3 class="h6">By Property</h3>
+                            <ul class="list-group list-group-flush">
+                                {% for row in report.callVolumeByProperty %}
+                                    <li class="list-group-item d-flex justify-content-between px-0"><span>{{ row.propertyLabel }}</span><span>{{ row.callCount }}</span></li>
+                                {% else %}
+                                    <li class="list-group-item px-0 text-body-secondary">No call volume data.</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h3 class="h6">By Contact</h3>
+                            <ul class="list-group list-group-flush">
+                                {% for row in report.callVolumeByContact %}
+                                    <li class="list-group-item d-flex justify-content-between px-0"><span>{{ row.contactLabel }}</span><span>{{ row.callCount }}</span></li>
+                                {% else %}
+                                    <li class="list-group-item px-0 text-body-secondary">No call volume data.</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Service Throughput by Technician</h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Technician</th><th class="text-end">Completed Jobs</th></tr></thead>
+                            <tbody>
+                                {% for row in report.throughputByTechnician %}
+                                    <tr><td>{{ row.displayName }}</td><td class="text-end">{{ row.jobCount }}</td></tr>
+                                {% else %}
+                                    <tr><td colspan="2" class="text-body-secondary">No technician throughput data.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Service Throughput by Dispatcher</h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Dispatcher</th><th class="text-end">Assigned Jobs</th></tr></thead>
+                            <tbody>
+                                {% for row in report.throughputByDispatcher %}
+                                    <tr><td>{{ row.displayName }}</td><td class="text-end">{{ row.jobCount }}</td></tr>
+                                {% else %}
+                                    <tr><td colspan="2" class="text-body-secondary">No dispatcher throughput data.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

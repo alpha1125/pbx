@@ -1,0 +1,83 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <a class="link-secondary text-decoration-none" href="{{ path('crm_maintenance_plan_index') }}">Back to Plans</a>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h1 class="h3 mb-4">{{ title }}</h1>
+
+                    {% if errors|length > 0 %}
+                        <div class="alert alert-danger" role="alert">
+                            Please fix the following:
+                            <ul class="mb-0">
+                                {% for err in errors %}
+                                    <li>{{ err.propertyPath ~ ': ' ~ err.message }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="{{ formAction }}" class="row g-3">
+                        <input type="hidden" name="_token" value="{% if plan.id %}{{ csrf_token('crm_maintenance_plan_form_' ~ plan.id) }}{% else %}{{ csrf_token('crm_maintenance_plan_form') }}{% endif %}">
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="name">Plan Name</label>
+                            <input class="form-control" id="name" name="name" value="{{ plan.name }}" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="planType">Plan Type</label>
+                            <select class="form-select" id="planType" name="planType" required>
+                                {% for value, label in {
+                                    'bronze': 'Bronze',
+                                    'silver': 'Silver',
+                                    'gold': 'Gold'
+                                } %}
+                                    <option value="{{ value }}" {% if plan.planType == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label" for="visitFrequencyDays">Visit Frequency (days)</label>
+                            <input class="form-control" id="visitFrequencyDays" name="visitFrequencyDays" type="number" min="7" value="{{ plan.visitFrequencyDays }}">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label" for="discountPercentage">Discount (%)</label>
+                            <input class="form-control" id="discountPercentage" name="discountPercentage" type="number" min="0" max="100" value="{{ plan.discountPercentage }}">
+                        </div>
+
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="priorityScheduling" name="priorityScheduling" value="1" {% if plan.priorityScheduling %}checked{% endif %}>
+                                <label class="form-check-label" for="priorityScheduling">Priority scheduling</label>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="startDate">Start Date</label>
+                            <input class="form-control" id="startDate" name="startDate" type="date" value="{{ plan.startDate ? plan.startDate|date('Y-m-d') : '' }}">
+                        </div>
+
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="isActive" name="isActive" value="1" {% if plan.isActive %}checked{% endif %}>
+                                <label class="form-check-label" for="isActive">Active</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-4 d-flex gap-2">
+                            <button class="btn btn-primary" type="submit">Save</button>
+                            <a class="btn btn-outline-secondary" href="{{ path('crm_maintenance_plan_index') }}">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

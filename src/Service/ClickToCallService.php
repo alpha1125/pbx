@@ -48,6 +48,11 @@ class ClickToCallService
 
         $rootSession = (new CallSession('local-click-'.Uuid::v7()->toRfc4122()))
             ->setProvider('telnyx')
+            ->setCallMode(CallSession::CALL_MODE_BRIDGE)
+            ->setCallState(CallSession::CALL_STATE_INITIATED)
+            ->setRecordingState(CallSession::RECORDING_STATE_INACTIVE)
+            ->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_INACTIVE)
+            ->setClientPhoneNumber($targetNumber)
             ->setFlowType(CallSession::FLOW_TYPE_CLICK_TO_CALL)
             ->setInboundFrom($agentNumber)
             ->setInboundTo($targetNumber)
@@ -142,6 +147,7 @@ class ClickToCallService
                 ->setAgentCallControlId($this->stringValue($payload, 'call_control_id') ?? $request->getAgentCallControlId())
                 ->setAgentCallLegId($this->stringValue($payload, 'call_leg_id') ?? $request->getAgentCallLegId())
                 ->touch();
+            $request->getCallSession()?->setCallState(CallSession::CALL_STATE_RINGING)->touch();
             $this->entityManager->flush();
 
             return true;
@@ -154,6 +160,7 @@ class ClickToCallService
                 ->setTargetCallControlId($this->stringValue($payload, 'call_control_id') ?? $request->getTargetCallControlId())
                 ->setTargetCallLegId($this->stringValue($payload, 'call_leg_id') ?? $request->getTargetCallLegId())
                 ->touch();
+            $request->getCallSession()?->setCallState(CallSession::CALL_STATE_RINGING)->touch();
             $this->entityManager->flush();
 
             return true;
@@ -168,6 +175,7 @@ class ClickToCallService
         if (null !== $providerLegId && $providerLegId === $request->getAgentCallLegId()) {
             if (ClickToCallRequest::STATUS_SPEAKING_INTRO !== $request->getStatus()) {
                 $request->setStatus(ClickToCallRequest::STATUS_AGENT_ANSWERED)->touch();
+                $request->getCallSession()?->setCallState(CallSession::CALL_STATE_CONNECTED)->touch();
                 $this->entityManager->flush();
 
                 $targetName = $request->getTargetName() ?? 'the contact';
@@ -207,6 +215,7 @@ class ClickToCallService
                 ->setStatus(ClickToCallRequest::STATUS_TARGET_ANSWERED)
                 ->setTargetCallControlId($this->stringValue($payload, 'call_control_id') ?? $request->getTargetCallControlId())
                 ->touch();
+            $request->getCallSession()?->setCallState(CallSession::CALL_STATE_CONNECTED)->touch();
 
             $action = (new CallAction('bridge'))
                 ->setCallSession($request->getCallSession())
@@ -307,6 +316,7 @@ class ClickToCallService
             ->setStatus(ClickToCallRequest::STATUS_BRIDGED)
             ->setBridgeStartedAt($request->getBridgeStartedAt() ?? new \DateTimeImmutable())
             ->touch();
+        $request->getCallSession()?->setCallState(CallSession::CALL_STATE_CONNECTED)->touch();
 
         if (null === $request->getRecordingStartedAt()) {
             $policy = $this->capturePolicyResolver->defaultForContext(CallSession::FLOW_TYPE_CLICK_TO_CALL);
@@ -324,6 +334,7 @@ class ClickToCallService
                         ->setStatus(ClickToCallRequest::STATUS_RECORDING)
                         ->setRecordingStartedAt(new \DateTimeImmutable())
                         ->touch();
+                    $request->getCallSession()?->setRecordingState(CallSession::RECORDING_STATE_ACTIVE)->touch();
                 }
             }
         }
@@ -385,6 +396,7 @@ class ClickToCallService
                 ->setStatus(ClickToCallRequest::STATUS_FAILED)
                 ->setErrorMessage($hangupCause)
                 ->touch();
+            $request->getCallSession()?->setCallState(CallSession::CALL_STATE_FAILED)->setRecordingState(CallSession::RECORDING_STATE_FAILED)->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_FAILED)->touch();
             $this->entityManager->flush();
 
             return true;
@@ -419,6 +431,7 @@ class ClickToCallService
                 ->setStatus(ClickToCallRequest::STATUS_FAILED)
                 ->setErrorMessage($hangupCause)
                 ->touch();
+            $request->getCallSession()?->setCallState(CallSession::CALL_STATE_FAILED)->setRecordingState(CallSession::RECORDING_STATE_FAILED)->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_FAILED)->touch();
             $this->entityManager->flush();
 
             return true;
@@ -428,6 +441,7 @@ class ClickToCallService
             ->setStatus(ClickToCallRequest::STATUS_COMPLETED)
             ->setErrorMessage($request->getErrorMessage())
             ->touch();
+        $request->getCallSession()?->setCallState(CallSession::CALL_STATE_COMPLETED)->setRecordingState(CallSession::RECORDING_STATE_STOPPED)->setTranscriptionState(CallSession::TRANSCRIPTION_STATE_STOPPED)->touch();
         $this->entityManager->flush();
 
         return true;

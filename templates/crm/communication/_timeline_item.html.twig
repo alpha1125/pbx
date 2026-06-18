@@ -48,6 +48,46 @@
                     </div>
                 </div>
             {% endif %}
+
+            {% set aiInsights = item.metadata.aiInsights ?? null %}
+            {% if aiInsights %}
+                <div class="mt-3 border rounded-3 bg-body-tertiary p-3">
+                    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
+                        <div class="fw-semibold">Call Insights</div>
+                        {% if aiInsights.recommended_disposition %}
+                            <span class="badge text-bg-info">{{ aiInsights.recommended_disposition|replace({'_':' '})|title }}</span>
+                        {% endif %}
+                    </div>
+
+                    {% if aiInsights.summary %}
+                        <div class="small mb-2"><span class="fw-semibold">Summary:</span> {{ aiInsights.summary }}</div>
+                    {% endif %}
+                    {% if aiInsights.customer_intent %}
+                        <div class="small mb-2"><span class="fw-semibold">Intent:</span> {{ aiInsights.customer_intent }}</div>
+                    {% endif %}
+                    {% if aiInsights.next_step %}
+                        <div class="small mb-2"><span class="fw-semibold">Next step:</span> {{ aiInsights.next_step }}</div>
+                    {% endif %}
+
+                    {% if aiInsights.matched_contacts is not empty %}
+                        <div class="small mb-1 fw-semibold">Suggested contacts</div>
+                        <ul class="small mb-2 ps-3">
+                            {% for match in aiInsights.matched_contacts %}
+                                <li>{{ match.displayName }}{% if match.primaryPhone %} ({{ match.primaryPhone }}){% endif %} - {{ match.reason }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+
+                    {% if aiInsights.matched_properties is not empty %}
+                        <div class="small mb-1 fw-semibold">Suggested properties</div>
+                        <ul class="small mb-0 ps-3">
+                            {% for match in aiInsights.matched_properties %}
+                                <li>{{ match.displayAddress }} - {{ match.reason }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+            {% endif %}
         </div>
 
         <div class="text-end" style="min-width: 220px;">

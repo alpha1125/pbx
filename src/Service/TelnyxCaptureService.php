@@ -29,6 +29,7 @@ class TelnyxCaptureService
         private readonly TranscriptionJobRepository $jobRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly CapturePolicyResolver $policyResolver,
+        private readonly CallCaptureControlService $captureControl,
         private readonly string $recordingFormat,
         private readonly string $recordingChannels,
         private readonly TelnyxTranscriptionConfiguration $transcriptionConfiguration,
@@ -114,11 +115,11 @@ class TelnyxCaptureService
         }
 
         if ($policy->recordAudio) {
-            $this->startRecording($session, $leg, $policy, sprintf('%s:record-start', $commandPrefix));
+            $this->captureControl->startRecording($session, $leg, $policy, $commandPrefix);
         }
 
         if ($policy->transcribeAudio) {
-            $this->startTranscription($session, $leg, $policy, sprintf('%s:transcription-start', $commandPrefix));
+            $this->captureControl->startTranscription($session, $leg, $policy, $commandPrefix);
         }
     }
 

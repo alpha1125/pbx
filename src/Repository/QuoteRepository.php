@@ -99,4 +99,56 @@ class QuoteRepository extends ServiceEntityRepository
             ->getQuery()
             ->getSingleScalarResult();
     }
+
+    public function countSentBetweenForTenant(Tenant $tenant, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return (int) $this->createQueryBuilder('quote')
+            ->select('COUNT(quote.id)')
+            ->andWhere('quote.tenant = :tenant')
+            ->andWhere('quote.sentAt IS NOT NULL')
+            ->andWhere('quote.sentAt >= :from')
+            ->andWhere('quote.sentAt < :to')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    public function countAcceptedBetweenForTenant(Tenant $tenant, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return (int) $this->createQueryBuilder('quote')
+            ->select('COUNT(quote.id)')
+            ->andWhere('quote.tenant = :tenant')
+            ->andWhere('quote.acceptedAt IS NOT NULL')
+            ->andWhere('quote.acceptedAt >= :from')
+            ->andWhere('quote.acceptedAt < :to')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * @return list<array{status:string,count:int,totalCents:int}>
+     */
+    public function summarizePipelineBetweenForTenant(Tenant $tenant, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return array_map(static fn (array $row): array => [
+            'status' => (string) $row['status'],
+            'count' => (int) $row['quoteCount'],
+            'totalCents' => (int) $row['totalCents'],
+        ], $this->createQueryBuilder('quote')
+            ->select('quote.status AS status, COUNT(quote.id) AS quoteCount, COALESCE(SUM(quote.totalCents), 0) AS totalCents')
+            ->andWhere('quote.tenant = :tenant')
+            ->andWhere('(quote.sentAt IS NOT NULL AND quote.sentAt >= :from AND quote.sentAt < :to) OR (quote.sentAt IS NULL AND quote.createdAt >= :from AND quote.createdAt < :to)')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->groupBy('quote.status')
+            ->orderBy('quote.status', 'ASC')
+            ->getQuery()
+            ->getArrayResult());
+    }
 }

@@ -1,0 +1,454 @@
+# CRM Phase 9
+
+## Goal
+
+Introduce a unified outbound calling system that supports two call modes while preserving a single CRM workflow.
+
+Call modes:
+
+* Browser Call (CSR uses browser softphone)
+* Bridge Call (Telnyx calls CSR phone, then bridges client)
+
+Both modes must behave identically from the CRM perspective.
+
+The PBX server is the control plane.
+
+The browser must never directly communicate with Telnyx.
+
+---
+
+## Why This Phase Exists
+
+Bridge Call is reliable but consumes two PSTN legs.
+
+Browser Call should:
+
+* reduce PSTN costs
+* improve audio quality
+* simplify headset usage
+* keep the CSR inside the CRM
+
+The business workflow should remain identical regardless of transport.
+
+---
+
+## High Level Architecture
+
+Browser Call:
+
+CSR Browser
+↓
+PBX Server
+↓
+Telnyx
+↓
+Client PSTN
+
+Bridge Call:
+
+CSR Phone
+↓
+Telnyx
+↓
+PBX Server
+↓
+Telnyx
+↓
+Client PSTN
+
+The PBX server owns:
+
+* authentication
+* call state
+* call permissions
+* recording
+* transcription
+* consent playback
+* audit logs
+* summaries
+* CRM updates
+
+The browser never directly talks to Telnyx.
+
+---
+
+## Unified Outbound Call Flow
+
+CSR opens customer record.
+
+CSR chooses:
+
+* Browser Call
+* Bridge Call
+
+### Browser Call
+
+CSR clicks Browser Call.
+
+PBX server:
+
+* creates call session
+* allocates browser softphone session
+* instructs Telnyx to dial customer
+
+### Bridge Call
+
+CSR clicks Bridge Call.
+
+PBX server:
+
+* creates call session
+* instructs Telnyx to call CSR phone
+* once answered
+* play "Connecting your call..."
+* dial customer
+* bridge both legs
+
+---
+
+## Unified Conversation Flow
+
+Customer answers.
+
+CSR introduces themselves naturally.
+
+Example:
+
+"Hi John, this is Lloyd from FirstFire."
+
+No recording or transcription begins automatically.
+
+CSR decides when to begin capture.
+
+CSR clicks:
+
+Start Recording & Transcription
+
+PBX server:
+
+1. Play consent message
+
+"This call will be recorded for transcription and quality purposes."
+
+2. Start recording
+
+3. Start transcription
+
+Call continues.
+
+CSR may stop recording/transcription at any time.
+
+Call eventually ends.
+
+PBX server:
+
+* closes call session
+* downloads recording if necessary
+* stores transcript
+* queues LLM summary job
+* updates CRM
+
+---
+
+## Dependencies
+
+* Existing Telnyx integration
+* Existing transcription pipeline
+* Existing CRM timeline
+* Existing property/contact linking
+* Existing tenant RBAC
+* Existing LLM summary infrastructure
+
+---
+
+## Non-Negotiable Rules
+
+* Browser Call and Bridge Call must share one CRM workflow.
+* Browser never directly communicates with Telnyx.
+* PBX server owns all telephony orchestration.
+* Recording/transcription is manually started by CSR.
+* Consent playback is mandatory before recording begins.
+* Browser Call and Bridge Call share recording controls.
+* Browser Call and Bridge Call share transcript storage.
+* Browser Call and Bridge Call share LLM summarization.
+* Preserve tenant isolation.
+* Preserve Phase 1-8 behavior.
+
+---
+
+## 9A: Unified Call Domain Model (done)
+
+### Goal
+
+Create one outbound call model used by both Browser Call and Bridge Call.
+
+### Scope
+
+Add call mode:
+
+* browser_call
+* bridge_call
+
+Track:
+
+* tenant
+* CSR user
+* property
+* contact
+* client phone number
+* call mode
+* call state
+* recording state
+* transcription state
+
+---
+
+## 9B: Shared Capture Control Service (done)
+### Goal
+
+Create one reusable recording/transcription service.
+
+### Scope
+
+Support:
+
+* play consent message
+* start recording
+* stop recording
+* start transcription
+* stop transcription
+
+Track states:
+
+* inactive
+* consent_playing
+* active
+* stopping
+* stopped
+* failed
+
+---
+
+## 9C: Bridge Call Refactor (done)
+
+### Goal
+
+Refactor existing click-to-call.
+
+Rename:
+
+Click To Call
+
+to
+
+Bridge Call
+
+Preserve behavior.
+
+Move to unified call lifecycle.
+
+---
+
+## 9D: Browser Softphone Session (done)
+
+### Goal
+
+Add browser softphone support.
+
+PBX server allocates browser session.
+
+Browser receives only PBX session information.
+
+Browser never communicates directly with Telnyx.
+
+---
+
+## 9E: Browser Call UI (done)
+
+### Goal
+
+Add browser softphone panel.
+
+Features:
+
+* call button
+* mute
+* hangup
+* keypad
+* recording button
+* recording state
+* call timer
+
+Recording button disabled until connected.
+
+---
+
+## 9F: Unified Call Event Engine (done)
+
+### Goal
+
+Normalize all call events.
+
+Support:
+
+* initiated
+* ringing
+* answered
+* failed
+* completed
+* CSR hangup
+* customer hangup
+
+Events update:
+
+* CRM
+* timeline
+* audit logs
+
+---
+## 9FA: missing.
+
+What exists now (from above completed sections) is mostly a UI shell plus PBX-initiated dialing:
+
+  - CrmBrowserCallService creates a call session and dials the target through Telnyx from the server side.
+  - CrmBrowserCallController returns session metadata and the SSE stream URL.
+  - browser_softphone_controller.js only manages local button state, timer, and SSE updates.
+
+  What is missing:
+
+  - No getUserMedia() call, so the browser never asks for microphone access.
+  - No browser media session at all, so there is nothing for the browser to talk to PBX with.
+  - No WebRTC/SIP signaling path from browser to PBX.
+  - No real mute/hangup/keypad transport to the server, only local UI toggles.
+  - No browser call leg that PBX can bridge to the Telnyx leg.
+
+  So the current behavior is:
+
+  - PBX dials the target number.
+  - The browser gets a status/timer panel.
+  - The browser is not actually participating in the call audio.
+
+  That means the current 9E: Browser Call UI status in docs/crm-phase-9-completion-state.md is too strong. Based on docs/crm-phase-9.md, 9E should only be complete when the browser has a
+  real softphone session, not just a panel.
+
+  What still needs to happen for a real browser softphone:
+
+  - Add a browser-to-PBX signaling contract.
+  - Use WebRTC or SIP-over-WebSocket through PBX, not Telnyx directly.
+  - Have the browser request mic permission and attach local audio.
+  - Create a live browser call leg that PBX can control and bridge.
+  - Wire mute, keypad, and hangup to actual server/media actions.
+  - Drive the UI from call state transitions: dialing, ringing, connected, ended, failed.
+  - Only enable recording after the call is connected.
+
+  One more practical point:
+
+  - If the panel itself is not rendering at all, there may also be an asset-loading/Stimulus registration issue.
+  - That is separate from the deeper problem above. Even if the panel renders, it still would not be a real softphone without media/signaling.
+
+  My read on scope:
+
+  - 9E as written in the phase doc does include a real browser softphone panel.
+  - The current implementation is a partial start, not the full scope.
+  - I would treat 9E as effectively incomplete until the browser can join a live PBX-controlled audio session.
+
+---
+
+## 9G: Transcript and Summary Pipeline
+
+### Goal
+
+Process both call modes identically.
+
+Store:
+
+* recording
+* transcript
+* summary JSON
+
+Queue LLM processing.
+
+Store valid JSON.
+
+Log invalid JSON.
+
+---
+
+## 9H: Compliance and UX Hardening
+
+### Goal
+
+Make capture safe and auditable.
+
+Add:
+
+* hold-to-record
+* capture states
+* audit logs
+* tenant policies
+
+Audit:
+
+* consent played
+* recording started
+* transcription started
+* recording stopped
+* transcription stopped
+
+---
+
+## LLM Summary Contract
+
+LLM returns valid JSON only.
+
+LLM never mutates CRM data.
+
+Human approval is required before applying recommendations.
+
+LLM may suggest:
+
+* summary
+* disposition
+* callback
+* follow-up task
+* estimate opportunity
+* equipment replacement opportunity
+
+---
+
+## Recommended Implementation Order
+
+1. 9A Unified Call Domain Model
+
+2. 9B Shared Capture Control Service
+
+3. 9C Bridge Call Refactor
+
+4. 9D Browser Softphone Session
+
+5. 9E Browser Call UI
+
+6. 9F Unified Call Event Engine
+
+7. 9G Transcript and Summary Pipeline
+
+8. 9H Compliance and UX Hardening
+
+---
+
+## Done Criteria
+
+Phase 9 is complete when:
+
+* Browser Call works
+* Bridge Call works
+* Both modes share the same CRM lifecycle
+* Browser never directly communicates with Telnyx
+* Recording/transcription can be manually started
+* Consent playback occurs first
+* Recordings are stored
+* Transcripts are stored
+* LLM summaries are stored
+* Timeline is updated
+* Audit logs are written
+* Tenant isolation is preserved

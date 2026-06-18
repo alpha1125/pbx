@@ -20,6 +20,7 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class CrmClickToCallController extends AbstractController
 {
+    #[Route('/crm/properties/{propertyId<\d+>}/contacts/{contactId<\d+>}/bridge-call', name: 'crm_property_contact_bridge_call', methods: ['POST'])]
     #[Route('/crm/properties/{propertyId<\d+>}/contacts/{contactId<\d+>}/click-to-call', name: 'crm_property_contact_click_to_call', methods: ['POST'])]
     public function __invoke(
         int $propertyId,
@@ -48,7 +49,7 @@ final class CrmClickToCallController extends AbstractController
         $this->denyAccessUnlessGranted(TenantScopedEntityVoter::VIEW, $contact);
 
         $token = $request->request->get('_token');
-        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_click_to_call_'.$property->getId().'_'.$contact->getId(), $token)) {
+        if (is_string($token) && '' !== $token && !$this->isCsrfTokenValid('crm_bridge_call_'.$property->getId().'_'.$contact->getId(), $token)) {
             return $this->respond($request, $property->getId(), ['ok' => false, 'error' => 'Invalid CSRF token.'], Response::HTTP_FORBIDDEN);
         }
 
@@ -74,7 +75,7 @@ final class CrmClickToCallController extends AbstractController
             return $this->json($payload, $status);
         }
 
-        $this->addFlash($payload['ok'] ? 'success' : 'error', (string) ($payload['ok'] ? 'Click-to-call started.' : ($payload['error'] ?? 'Call could not be started.')));
+        $this->addFlash($payload['ok'] ? 'success' : 'error', (string) ($payload['ok'] ? 'Bridge call started.' : ($payload['error'] ?? 'Call could not be started.')));
 
         return $this->redirectToRoute('crm_property_show', ['id' => $propertyId]);
     }

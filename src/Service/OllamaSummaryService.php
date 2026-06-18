@@ -44,8 +44,10 @@ final class OllamaSummaryService
                     'action_items' => ['type' => 'array', 'items' => ['type' => 'string']],
                     'urgency' => ['type' => 'string'],
                     'sentiment' => ['type' => 'string'],
+                    'recommended_disposition' => ['type' => 'string'],
+                    'next_step' => ['type' => 'string'],
                 ],
-                'required' => ['summary', 'customer_intent', 'participants', 'equipment_mentions', 'appointment_mentions', 'quote_or_price_mentions', 'action_items', 'urgency', 'sentiment'],
+                'required' => ['summary', 'customer_intent', 'participants', 'equipment_mentions', 'appointment_mentions', 'quote_or_price_mentions', 'action_items', 'urgency', 'sentiment', 'recommended_disposition', 'next_step'],
             ],
         ];
 
@@ -97,7 +99,9 @@ Required JSON shape:
   "quote_or_price_mentions": ["..."],
   "action_items": ["..."],
   "urgency": "low|medium|high|unknown",
-  "sentiment": "positive|neutral|negative|mixed|unknown"
+  "sentiment": "positive|neutral|negative|mixed|unknown",
+  "recommended_disposition": "no_answer|quote_requested|follow_up_required|job_booked|spam|unknown",
+  "next_step": "..."
 }
 
 Channel mapping:
@@ -126,7 +130,7 @@ PROMPT;
             $decoded[$field] = is_array($value) ? array_values(array_map('strval', $value)) : [];
         }
 
-        foreach (['summary', 'customer_intent', 'urgency', 'sentiment'] as $field) {
+        foreach (['summary', 'customer_intent', 'urgency', 'sentiment', 'recommended_disposition', 'next_step'] as $field) {
             $value = $decoded[$field] ?? null;
             $decoded[$field] = is_string($value) ? $value : '';
         }

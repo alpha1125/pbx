@@ -37,9 +37,22 @@
                         <div class="list-group-item px-0">
                             <div class="d-flex justify-content-between gap-3">
                                 <div>
-                                    <div class="fw-semibold">{{ item.itemType|replace({'_':' '})|title }}</div>
+                                    <div class="fw-semibold">
+                                        {{ item.itemType|replace({'_':' '})|title }}
+                                        {% if item.resultType == 'transcript_segment' %}
+                                            <span class="badge text-bg-info ms-2">Transcript match</span>
+                                        {% endif %}
+                                    </div>
                                     <div class="small text-body-secondary">{{ item.property ? item.property.displayAddress : 'No property' }}</div>
-                                    <div class="small">{{ item.bodyText ?: 'No body text' }}</div>
+                                    <div class="small">
+                                        {{ item.bodyText ?: 'No body text' }}
+                                        {% if item.resultType == 'transcript_segment' and item.fullText is defined and item.fullText != item.bodyText %}
+                                            <div class="text-body-secondary mt-1">Full text: {{ item.fullText }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% if item.detailUrl %}
+                                        <div class="small mt-1"><a href="{{ item.detailUrl }}">Open transcript messages</a></div>
+                                    {% endif %}
                                 </div>
                                 <div class="small text-body-secondary">{{ item.occurredAt|date('Y-m-d H:i') }}</div>
                             </div>

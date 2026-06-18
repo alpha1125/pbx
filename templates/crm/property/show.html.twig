@@ -48,10 +48,16 @@
                                             <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Archive this property-contact link?')">Archive Link</button>
                                         </form>
                                         {% if propertyContact.contact.primaryPhone %}
-                                            <form method="post" action="{{ path('crm_property_contact_click_to_call', {propertyId: property.id, contactId: propertyContact.contact.id}) }}" class="mt-2">
-                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_click_to_call_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
-                                                <button class="btn btn-sm btn-outline-primary" type="submit">Click to Call</button>
-                                            </form>
+                                            <div class="mt-2 d-flex flex-wrap gap-2 justify-content-end">
+                                                <form method="post" action="{{ path('crm_property_contact_browser_call', {propertyId: property.id, contactId: propertyContact.contact.id}) }}">
+                                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_browser_call_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
+                                                    <button class="btn btn-sm btn-outline-success" type="submit">Browser Call</button>
+                                                </form>
+                                                <form method="post" action="{{ path('crm_property_contact_bridge_call', {propertyId: property.id, contactId: propertyContact.contact.id}) }}">
+                                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_bridge_call_' ~ property.id ~ '_' ~ propertyContact.contact.id) }}">
+                                                    <button class="btn btn-sm btn-outline-primary" type="submit">Bridge Call</button>
+                                                </form>
+                                            </div>
                                         {% endif %}
                                     </div>
                                 </div>
@@ -126,7 +132,67 @@
                 </div>
             </div>
 
-            <div class="card shadow-sm mt-4">
+            {% if primaryBrowserCallContact %}
+                <div class="card shadow-sm mt-4"
+                     data-controller="browser-softphone"
+                     data-browser-softphone-property-id="{{ property.id }}" data-browser-softphone-contact-id="{{ primaryBrowserCallContact.contact.id }}"
+                     data-browser-softphone-browser-call-prepare-url-value="{{ path('crm_property_contact_browser_call_prepare', {propertyId: property.id, contactId: primaryBrowserCallContact.contact.id}) }}"
+                     data-browser-softphone-browser-session-allocate-url-template-value="/api/calls/{providerSessionId}/browser-session"
+                     data-browser-softphone-browser-session-event-url-template-value="/api/browser-softphone-sessions/{sessionToken}/events"
+                     data-browser-softphone-csrf-token-value="{{ csrf_token('crm_browser_call_' ~ property.id ~ '_' ~ primaryBrowserCallContact.contact.id) }}"
+                     data-browser-softphone-event-stream-url-template-value="/api/calls/{providerSessionId}/events/stream">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">Browser Softphone</h2>
+                                <div class="small text-body-secondary">
+                                    {{ primaryBrowserCallContact.contact.displayName }} · {{ primaryBrowserCallContact.contact.primaryPhone }}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="small text-body-secondary">Timer</div>
+                                <div class="h4 mb-0" data-browser-softphone-target="timer">00:00</div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" data-browser-softphone-target="contact" value="{{ primaryBrowserCallContact.contact.id }}">
+                        <input type="hidden" data-browser-softphone-target="primaryPhone" value="{{ primaryBrowserCallContact.contact.primaryPhone }}">
+                        <input type="hidden" data-browser-softphone-target="digits" value="">
+
+                        <div class="alert alert-secondary py-2 mb-3" data-browser-softphone-target="status">Ready to connect the browser softphone.</div>
+                        <div class="small text-body-secondary mb-3">
+                            Connection state: <span class="fw-semibold" data-browser-softphone-target="connectionState">Disconnected</span>
+                        </div>
+                        <div class="small text-body-secondary mb-3">
+                            Call state: <span class="fw-semibold" data-browser-softphone-target="callState">Idle</span>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <button type="button" class="btn btn-success" data-browser-softphone-target="callButton" data-action="browser-softphone#startCall">Place Browser Call</button>
+                            <button type="button" class="btn btn-outline-secondary" data-browser-softphone-target="muteButton" data-action="browser-softphone#toggleMute" disabled>Mute</button>
+                            <button type="button" class="btn btn-outline-secondary" data-browser-softphone-target="keypadButton" data-action="browser-softphone#toggleKeypad" disabled>Keypad</button>
+                            <button type="button" class="btn btn-outline-danger" data-browser-softphone-target="recordingButton" data-action="browser-softphone#toggleRecording" disabled>Start Recording</button>
+                            <button type="button" class="btn btn-outline-dark" data-browser-softphone-target="hangupButton" data-action="browser-softphone#hangup" disabled>Hang Up</button>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="small text-body-secondary">Recording State</div>
+                            <div class="badge text-bg-secondary" data-browser-softphone-target="recordingState">Recording inactive</div>
+                        </div>
+
+                        <div class="border rounded-3 p-3 bg-body-tertiary" data-browser-softphone-target="keypad" hidden>
+                            <div class="small fw-semibold mb-2">Keypad</div>
+                            <div class="d-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem;">
+                                {% for digit in ['1','2','3','4','5','6','7','8','9','*','0','#'] %}
+                                    <button type="button" class="btn btn-outline-secondary" data-digit="{{ digit }}" data-action="browser-softphone#pressDigit">{{ digit }}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card shadow-sm mt-4" id="service-history-card">
                 <div class="card-body">
                     <h2 class="h5">Service History</h2>
                     <div class="list-group list-group-flush">
@@ -186,11 +252,588 @@
                             <div class="text-body-secondary">No follow-up tasks yet.</div>
                         {% endfor %}
                     </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5">Service Suggestions</h2>
+                    <p class="text-body-secondary small mb-3">Conversation-driven follow-up ideas and equipment replacement flags for this property.</p>
+
+                    <div class="mb-3">
+                        <div class="fw-semibold mb-2">Follow-up Suggestions</div>
+                        <div class="d-grid gap-2">
+                            {% for suggestion in suggestions.followUpSuggestions %}
+                                <div class="border rounded-3 p-2 bg-body-tertiary">
+                                    <div class="fw-semibold">{{ suggestion.title }}</div>
+                                    <div class="small text-body-secondary">{{ suggestion.description }}</div>
+                                    <div class="small mt-1">{{ suggestion.reason }}</div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary small">No follow-up suggestions right now.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="fw-semibold mb-2">Equipment Replacement Flags</div>
+                        <div class="d-grid gap-2">
+                            {% for flag in suggestions.equipmentFlags %}
+                                <div class="border rounded-3 p-2 bg-body-tertiary">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <div class="fw-semibold">{{ flag.displayName }}</div>
+                                        <span class="badge {{ flag.severity == 'high' ? 'text-bg-danger' : 'text-bg-warning' }}">{{ flag.severity|title }}</span>
+                                    </div>
+                                    <div class="small text-body-secondary">
+                                        {% if flag.ageYears is not null %}Age: {{ flag.ageYears }} years · {% endif %}
+                                        {{ flag.reason }}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary small">No replacement flags right now.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        <div class="col-12">
+            <div class="card shadow-sm h-100 border-0" id="customer-health-card">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+                        <div>
+                            <h2 class="h5 mb-1">Customer Health</h2>
+                            <p class="text-body-secondary mb-0">Deterministic health score based on equipment, service history, calls, invoices, and warranty status.</p>
+                        </div>
+                    </div>
+                    <div class="row g-4">
+                        <div class="col-lg-3">
+                            <div class="text-center p-3 bg-body-tertiary rounded-3">
+                                    <div class="display-6 fw-bold text-{% if 'healthy' == healthScore.category %}success{% elseif 'at_risk' == healthScore.category %}danger{% elseif 'dormant' == healthScore.category %}warning{% else %}secondary{% endif %}">
+                                    {{ healthScore.score }}/100
+                                </div>
+<span class="badge text-bg-{% if 'healthy' == healthScore.category %}success{% elseif 'at_risk' == healthScore.category %}danger{% elseif 'dormant' == healthScore.category %}warning{% elseif 'needs_attention' == healthScore.category %}primary{% else %}secondary{% endif %}">
+                                    {{ healthScore.category|replace({'_':' '})|title }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-lg-9">
+                            {% if healthScore.factors %}
+                                <div class="mb-2 fw-semibold small text-body-secondary">Health factors</div>
+                                <ul class="list-group list-group-flush">
+                                    {% for factor in healthScore.factors %}
+                                        <li class="list-group-item px-0 py-1 small d-flex justify-content-between align-items-center">
+                                            <span>{{ factor.label }}</span>
+                                            {% if factor.impact < 0 %}
+                                                <span class="badge text-bg-danger">{{ factor.impact }} pts</span>
+                                            {% else %}
+                                                <span class="badge text-bg-success">+{{ factor.impact }} pts</span>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <div class="text-body-secondary small">No health factors to display.</div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="col-12">
+            <div class="card shadow-sm mb-4" id="customer-journey-card">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+                        <div>
+                            <h2 class="h5 mb-1">Customer Journey Dashboard</h2>
+                            <p class="text-body-secondary mb-0">Sequential lifecycle stages for this property with direct links back to the underlying CRM records.</p>
+                        </div>
+                        <div class="text-end">
+                            <div class="badge text-bg-secondary mb-1">{{ customerJourneyDashboard.completedCount }} completed</div>
+                            <div class="badge text-bg-light text-dark">{{ customerJourneyDashboard.upcomingCount }} upcoming</div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        {% for stage in customerJourneyDashboard.stages %}
+                            <div class="col-md-6 col-xl-4">
+                                <div class="border rounded-3 p-3 h-100 {% if stage.status == 'current' %}border-primary bg-primary-subtle{% elseif stage.status == 'complete' %}bg-body-tertiary{% endif %}"
+                                     data-customer-journey-stage="{{ stage.key }}"
+                                     data-customer-journey-status="{{ stage.status }}">
+                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                        <div>
+                                            <div class="fw-semibold">{{ stage.label }}</div>
+                                            <div class="small text-body-secondary">{{ stage.description }}</div>
+                                        </div>
+                                        <span class="badge text-bg-{% if stage.status == 'complete' %}success{% elseif stage.status == 'current' %}primary{% else %}secondary{% endif %}">
+                                            {{ stage.status|title }}
+                                        </span>
+                                    </div>
+                                    <div class="small mb-2">{{ stage.summary }}</div>
+                                    {% if stage.occurredAt %}
+                                        <div class="small text-body-secondary mb-2">Recorded {{ stage.occurredAt|date('Y-m-d H:i') }}</div>
+                                    {% endif %}
+                                    {% if stage.link %}
+                                        {% if stage.link.route is defined %}
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ path(stage.link.route, stage.link.params) }}">Open record</a>
+                                        {% else %}
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ path('crm_property_show', {id: property.id}) }}#{{ stage.link.fragment }}">Open section</a>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="small text-body-secondary">No linked source yet.</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4" id="assigned-maintenance-plans-card">
+                    <h2 class="h5 mb-3">Assigned Maintenance Plans</h2>
+                    <form method="post" action="{{ path('crm_property_maintenance_plan_assign', {id: property.id}) }}" class="row g-2 align-items-end mb-3">
+                        <input type="hidden" name="_token" value="{{ csrf_token('crm_property_maintenance_plan_assign_' ~ property.id) }}">
+                        <div class="col-md-8">
+                            <label class="form-label small mb-1" for="maintenancePlanId">Assign Plan</label>
+                            <select class="form-select form-select-sm" id="maintenancePlanId" name="maintenancePlanId">
+                                <option value="">Choose a plan</option>
+                                {% for plan in availableMaintenancePlans %}
+                                    <option value="{{ plan.id }}">{{ plan.name }} ({{ plan.planTypeLabel }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-sm btn-primary w-100" type="submit">Assign Plan</button>
+                        </div>
+                    </form>
+                    {% if assignedPlans %}
+                        {% for assignment in assignedPlans %}
+                            <div class="border rounded-3 p-3 bg-body-tertiary mb-2">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="fw-semibold">{{ assignment.maintenancePlan.planTypeLabel }}</div>
+                                        <div class="small text-body-secondary">{{ assignment.planNameAtAssignment }}</div>
+                                        <div class="small mt-1">
+                                            Every {{ assignment.maintenancePlan.visitFrequencyDays }} days
+                                            {% if assignment.maintenancePlan.discountPercentage > 0 %} · {{ assignment.maintenancePlan.discountPercentage }}% discount{% endif %}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="badge text-bg-success">Active</span>
+                                        {% if assignment.maintenancePlan.priorityScheduling %}<span class="badge text-bg-primary ms-1">Priority</span>{% endif %}
+                                        <form method="post" action="{{ path('crm_property_maintenance_plan_cancel', {id: property.id, assignmentId: assignment.id}) }}" class="mt-2 text-end">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('crm_property_maintenance_plan_cancel_' ~ assignment.id) }}">
+                                            <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Cancel this maintenance plan assignment?')">Cancel</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-body-secondary small">No maintenance plans assigned.</p>
+                    {% endif %}
+                </div>
+
+                <div class="card shadow-sm mb-4" id="retention-opportunities-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">Retention Opportunities</h2>
+                                <p class="text-body-secondary mb-0">Deterministic opportunities generated from health, service, call, invoice, and maintenance data.</p>
+                            </div>
+                            <form method="post" action="{{ path('crm_retention_opportunity_generate') }}">
+                                <input type="hidden" name="_token" value="{{ csrf_token('crm_retention_opportunity_generate_' ~ property.id) }}">
+                                <input type="hidden" name="propertyId" value="{{ property.id }}">
+                                <button class="btn btn-sm btn-outline-primary" type="submit">Generate For Property</button>
+                            </form>
+                        </div>
+                        {% if retentionOpportunities %}
+                            <div class="d-grid gap-2">
+                                {% for opportunity in retentionOpportunities %}
+                                    <div class="border rounded-3 p-3 bg-body-tertiary">
+                                        <div class="d-flex justify-content-between align-items-start gap-3">
+                                            <div>
+                                                <div class="fw-semibold">{{ opportunity.opportunityTypeLabel }}</div>
+                                                <div class="small text-body-secondary">{{ opportunity.detectedReason }}</div>
+                                                <div class="small text-body-secondary mt-1">
+                                                    Source: {{ opportunity.sourceKey }}
+                                                    {% if opportunity.contact %} · Contact: {{ opportunity.contact.displayName }}{% endif %}
+                                                    {% if opportunity.equipment %} · Equipment: {{ opportunity.equipment.equipmentType|replace({'_':' '})|title }}{% endif %}
+                                                </div>
+                                            </div>
+                                            <div class="text-end">
+                                                <span class="badge text-bg-warning">{{ opportunity.statusLabel }}</span>
+                                                <div class="small text-body-secondary mt-1">{{ opportunity.detectedAt|date('Y-m-d H:i') }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-body-secondary small mb-0">No open retention opportunities.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                    <div class="card shadow-sm mb-4" id="next-best-actions-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">Next Best Actions</h2>
+                                <p class="text-body-secondary mb-0">Human-reviewed recommendations only. Approval, dismissal, and completion are manual steps and never trigger automatic outreach.</p>
+                            </div>
+                            <div class="text-end">
+                                <div class="badge text-bg-secondary mb-2">{{ nextBestActionSuggestions|length }} saved</div>
+                                <form method="post" action="{{ path('crm_property_next_best_action_generate', {id: property.id}) }}">
+                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_property_next_best_action_generate_' ~ property.id) }}">
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Generate Suggestions</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            {% for suggestion in nextBestActionSuggestions %}
+                                <div class="border rounded-3 p-3 bg-body-tertiary" data-next-best-action-type="{{ suggestion.suggestionType }}" data-next-best-action-id="{{ suggestion.id }}" data-next-best-action-status="{{ suggestion.status }}">
+                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                        <div>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                                <div class="fw-semibold">{{ suggestion.typeLabel }}</div>
+                                                <span class="badge text-bg-secondary">{{ suggestion.confidenceLabel }}</span>
+                                                <span class="badge text-bg-{% if suggestion.status == 'suggested' %}warning{% elseif suggestion.status == 'approved' %}primary{% elseif suggestion.status == 'completed' %}success{% else %}secondary{% endif %}">
+                                                    {{ suggestion.statusLabel }}
+                                                </span>
+                                            </div>
+                                            <div class="small text-body-secondary">{{ suggestion.reason }}</div>
+                                            {% if suggestion.opportunity %}
+                                                <div class="small text-body-secondary mt-1">Linked opportunity: {{ suggestion.opportunity.opportunityTypeLabel }}</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="text-end small text-body-secondary">
+                                            <div>{{ suggestion.updatedAt|date('Y-m-d H:i') }}</div>
+                                            <div>{{ suggestion.sourceKey }}</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex flex-wrap gap-2">
+                                        {% if suggestion.status == 'suggested' %}
+                                            <form method="post" action="{{ path('crm_property_next_best_action_update_status', {id: property.id, suggestionId: suggestion.id, status: 'approved'}) }}">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_property_next_best_action_status_' ~ suggestion.id) }}">
+                                                <button class="btn btn-sm btn-outline-primary" type="submit">Approve</button>
+                                            </form>
+                                            <form method="post" action="{{ path('crm_property_next_best_action_update_status', {id: property.id, suggestionId: suggestion.id, status: 'dismissed'}) }}">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_property_next_best_action_status_' ~ suggestion.id) }}">
+                                                <button class="btn btn-sm btn-outline-danger" type="submit">Dismiss</button>
+                                            </form>
+                                        {% elseif suggestion.status == 'approved' %}
+                                            <form method="post" action="{{ path('crm_property_next_best_action_update_status', {id: property.id, suggestionId: suggestion.id, status: 'completed'}) }}">
+                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_property_next_best_action_status_' ~ suggestion.id) }}">
+                                                <button class="btn btn-sm btn-outline-success" type="submit">Mark Complete</button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary">No next best actions saved yet.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-4" id="csr-playbooks-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">CSR Playbooks</h2>
+                                <p class="text-body-secondary mb-0">Fixed conversation guides for property and opportunity context. These are static templates, not AI-generated scripts.</p>
+                            </div>
+                        </div>
+                        <div class="accordion" id="csr-playbook-accordion">
+                            {% for playbook in csrPlaybooks %}
+                                <div class="accordion-item">
+                                    <h3 class="accordion-header" id="csr-playbook-heading-{{ loop.index }}">
+                                        <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#csr-playbook-collapse-{{ loop.index }}" aria-expanded="{{ loop.first ? 'true' : 'false' }}" aria-controls="csr-playbook-collapse-{{ loop.index }}">
+                                            {{ playbook.title }}
+                                        </button>
+                                    </h3>
+                                    <div id="csr-playbook-collapse-{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="csr-playbook-heading-{{ loop.index }}" data-bs-parent="#csr-playbook-accordion">
+                                        <div class="accordion-body">
+                                            <div class="row g-4">
+                                                <div class="col-lg-7">
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Purpose</div>
+                                                        <div>{{ playbook.purpose }}</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Opening Prompt</div>
+                                                        <div>{{ playbook.openingPrompt }}</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Qualification Questions</div>
+                                                        <ul class="mb-0">
+                                                            {% for question in playbook.qualificationQuestions %}
+                                                                <li>{{ question }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Objection Handling</div>
+                                                        <ul class="mb-0">
+                                                            {% for note in playbook.objectionHandlingNotes %}
+                                                                <li>{{ note }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Suggested Next Steps</div>
+                                                        <ul class="mb-0">
+                                                            {% for step in playbook.suggestedNextSteps %}
+                                                                <li>{{ step }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div>
+                                                        <div class="small text-body-secondary fw-semibold">Compliance Notes</div>
+                                                        <ul class="mb-0">
+                                                            {% for note in playbook.complianceNotes %}
+                                                                <li>{{ note }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div class="col-lg-5">
+                                                    <div class="d-grid gap-2">
+                                                        <div class="border rounded-3 p-3 bg-body-tertiary">
+                                                            <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                                                <div class="fw-semibold">Property</div>
+                                                                {% if propertyPlaybookAttachments[playbook.type] is defined %}
+                                                                    <span class="badge text-bg-success">Attached</span>
+                                                                {% else %}
+                                                                    <span class="badge text-bg-secondary">Available</span>
+                                                                {% endif %}
+                                                            </div>
+                                                            {% if propertyPlaybookAttachments[playbook.type] is defined %}
+                                                                <div class="small text-body-secondary">Already attached to this property.</div>
+                                                            {% else %}
+                                                                <form method="post" action="{{ path('crm_csr_playbook_attach') }}" class="mt-2">
+                                                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_csr_playbook_attach_' ~ playbook.type ~ '_' ~ property.id ~ '_0_0') }}">
+                                                                    <input type="hidden" name="_returnTo" value="{{ path('crm_property_show', {id: property.id}) }}">
+                                                                    <input type="hidden" name="playbookType" value="{{ playbook.type }}">
+                                                                    <input type="hidden" name="propertyId" value="{{ property.id }}">
+                                                                    <button class="btn btn-sm btn-outline-primary" type="submit">Attach to Property</button>
+                                                                </form>
+                                                            {% endif %}
+                                                        </div>
+
+                                                        {% if primaryBrowserCallContact %}
+                                                            <div class="border rounded-3 p-3 bg-body-tertiary">
+                                                                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                                                    <div class="fw-semibold">Primary Contact</div>
+                                                                    {% if contactPlaybookAttachments[primaryBrowserCallContact.contact.id] is defined and contactPlaybookAttachments[primaryBrowserCallContact.contact.id][playbook.type] is defined %}
+                                                                        <span class="badge text-bg-success">Attached</span>
+                                                                    {% else %}
+                                                                        <span class="badge text-bg-secondary">Available</span>
+                                                                    {% endif %}
+                                                                </div>
+                                                                <div class="small text-body-secondary mb-2">{{ primaryBrowserCallContact.contact.displayName }}</div>
+                                                                {% if contactPlaybookAttachments[primaryBrowserCallContact.contact.id] is defined and contactPlaybookAttachments[primaryBrowserCallContact.contact.id][playbook.type] is defined %}
+                                                                    <div class="small text-body-secondary">Already attached to the primary contact.</div>
+                                                                {% else %}
+                                                                    <div class="small text-body-secondary">Attach from the contact edit page to keep the contact-specific context together.</div>
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endif %}
+
+                                                        <div class="border rounded-3 p-3 bg-body-tertiary">
+                                                            <div class="fw-semibold mb-2">Open Retention Opportunities</div>
+                                                            {% if retentionOpportunities %}
+                                                                <div class="d-grid gap-2">
+                                                                    {% for opportunity in retentionOpportunities %}
+                                                                        <div class="border rounded-3 p-2 bg-body">
+                                                                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                                                                <div>
+                                                                                    <div class="fw-semibold">{{ opportunity.opportunityTypeLabel }}</div>
+                                                                                    <div class="small text-body-secondary">{{ opportunity.detectedReason }}</div>
+                                                                                </div>
+                                                                                {% if opportunityPlaybookAttachments[opportunity.id] is defined and opportunityPlaybookAttachments[opportunity.id][playbook.type] is defined %}
+                                                                                    <span class="badge text-bg-success">Attached</span>
+                                                                                {% else %}
+                                                                                    <form method="post" action="{{ path('crm_csr_playbook_attach') }}">
+                                                                                        <input type="hidden" name="_token" value="{{ csrf_token('crm_csr_playbook_attach_' ~ playbook.type ~ '_' ~ property.id ~ '_0_' ~ opportunity.id) }}">
+                                                                                        <input type="hidden" name="_returnTo" value="{{ path('crm_property_show', {id: property.id}) }}">
+                                                                                        <input type="hidden" name="playbookType" value="{{ playbook.type }}">
+                                                                                        <input type="hidden" name="propertyId" value="{{ property.id }}">
+                                                                                        <input type="hidden" name="retentionOpportunityId" value="{{ opportunity.id }}">
+                                                                                        <button class="btn btn-sm btn-outline-primary" type="submit">Attach</button>
+                                                                                    </form>
+                                                                                {% endif %}
+                                                                            </div>
+                                                                            {% if opportunityPlaybookAttachments[opportunity.id] is defined and opportunityPlaybookAttachments[opportunity.id][playbook.type] is defined %}
+                                                                                <div class="small text-body-secondary mt-1">Already attached to this opportunity.</div>
+                                                                            {% endif %}
+                                                                        </div>
+                                                                    {% endfor %}
+                                                                </div>
+                                                            {% else %}
+                                                                <div class="small text-body-secondary">No open retention opportunities on this property.</div>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-4" id="customer-sentiment-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">Customer Sentiment</h2>
+                                <p class="text-body-secondary mb-0">Manual sentiment history for this property. No autonomous or AI-driven sentiment is applied here.</p>
+                            </div>
+                            <div class="badge text-bg-secondary align-self-start">{{ sentimentHistory|length }} recorded</div>
+                        </div>
+
+                        <form method="post" action="{{ path('crm_property_sentiment_add', {id: property.id}) }}" class="row g-3 mb-4 border rounded-3 p-3 bg-body-tertiary">
+                            <input type="hidden" name="_token" value="{{ csrf_token('crm_property_sentiment_' ~ property.id) }}">
+                            <div class="col-md-4">
+                                <label class="form-label" for="sentimentValue">Sentiment</label>
+                                <select class="form-select" id="sentimentValue" name="sentiment" required>
+                                    {% for sentiment in sentimentOptions %}
+                                        <option value="{{ sentiment }}">{{ sentiment|replace({'_': ' '})|title }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="sentimentContact">Contact</label>
+                                <select class="form-select" id="sentimentContact" name="contactId">
+                                    <option value="">None</option>
+                                    {% for propertyContact in sentimentContacts %}
+                                        <option value="{{ propertyContact.contact.id }}">{{ propertyContact.contact.displayName }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="sentimentCallSession">Call</label>
+                                <select class="form-select" id="sentimentCallSession" name="callSessionId">
+                                    <option value="">None</option>
+                                    {% for callSession in recentCallSessions %}
+                                        <option value="{{ callSession.id }}">
+                                            {{ callSession.createdAt|date('Y-m-d H:i') }}
+                                            {% if callSession.callMode %}· {{ callSession.callMode|replace({'_': ' '})|title }}{% endif %}
+                                            {% if callSession.callState %}· {{ callSession.callState|replace({'_': ' '})|title }}{% endif %}
+                                            {% if callSession.contact %}· {{ callSession.contact.displayName }}{% endif %}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="sentimentNote">Note</label>
+                                <textarea class="form-control" id="sentimentNote" name="note" rows="3" placeholder="Add context for the recorded sentiment."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <button class="btn btn-primary" type="submit">Record Sentiment</button>
+                            </div>
+                        </form>
+
+                        <div class="d-grid gap-2">
+                            {% for sentimentEntry in sentimentHistory %}
+                                <div class="border rounded-3 p-3 bg-body-tertiary">
+                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                        <div>
+                                            <div class="fw-semibold">{{ sentimentEntry.sentimentLabel }}</div>
+                                            <div class="small text-body-secondary">
+                                                Recorded {{ sentimentEntry.recordedAt|date('Y-m-d H:i') }} by {{ sentimentEntry.recordedBy.displayName }}
+                                            </div>
+                                        </div>
+                                        <span class="badge text-bg-{% if sentimentEntry.sentiment == 'positive' %}success{% elseif sentimentEntry.sentiment == 'negative' or sentimentEntry.sentiment == 'frustrated' %}danger{% elseif sentimentEntry.sentiment == 'price_sensitive' %}warning{% else %}secondary{% endif %}">
+                                            {{ sentimentEntry.sentimentLabel }}
+                                        </span>
+                                    </div>
+                                    {% if sentimentEntry.note %}
+                                        <div class="small mb-2">{{ sentimentEntry.note }}</div>
+                                    {% endif %}
+                                    <div class="small text-body-secondary">
+                                        {% if sentimentEntry.contact %}
+                                            Contact: {{ sentimentEntry.contact.displayName }}
+                                        {% endif %}
+                                        {% if sentimentEntry.callSession %}
+                                            {% if sentimentEntry.contact %} · {% endif %}
+                                            Call: {{ sentimentEntry.callSession.createdAt|date('Y-m-d H:i') }}
+                                            {% if sentimentEntry.callSession.callMode %} ({{ sentimentEntry.callSession.callMode|replace({'_': ' '})|title }}){% endif %}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary">No sentiment history yet.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+            <div class="card shadow-sm mb-4" id="homeowner-lifecycle-card">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+                        <div>
+                            <h2 class="h5 mb-1">Homeowner Timeline</h2>
+                            <p class="text-body-secondary mb-0">Searchable lifecycle view across RFQs, estimates, quotes, jobs, installs, visits, invoices, calls, maintenance plans, retention opportunities, and sentiment.</p>
+                        </div>
+                        <div class="badge text-bg-secondary align-self-start">{{ lifecycleTimeline.items|length }} shown</div>
+                    </div>
+
+                    <form method="get" class="row g-2 align-items-end mb-4">
+                        <input type="hidden" name="contactPage" value="{{ contactPage }}">
+                        <input type="hidden" name="equipmentPage" value="{{ equipmentPage }}">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="lifecycleType">Type</label>
+                            <select class="form-select form-select-sm" id="lifecycleType" name="lifecycleType">
+                                {% for typeValue, typeLabel in lifecycleTimeline.typeOptions %}
+                                    <option value="{{ typeValue }}" {% if lifecycleTimeline.activeType == typeValue %}selected{% endif %}>{{ typeLabel }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small mb-1" for="lifecycleQ">Search</label>
+                            <input class="form-control form-control-sm" id="lifecycleQ" name="lifecycleQ" value="{{ lifecycleTimeline.search }}">
+                        </div>
+                        <div class="col-md-3 d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-primary flex-grow-1" type="submit">Apply</button>
+                            <a class="btn btn-sm btn-outline-secondary flex-grow-1" href="{{ path('crm_property_show', {id: property.id}) }}">Reset</a>
+                        </div>
+                    </form>
+
+                    <div class="list-group list-group-flush">
+                        {% for item in lifecycleTimeline.items %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                            <span class="badge {{ item.badgeClass }}">{{ item.typeLabel }}</span>
+                                            <div class="fw-semibold">{{ item.title }}</div>
+                                        </div>
+                                        <div class="small text-body-secondary">{{ item.detail }}</div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small text-body-secondary">{{ item.occurredAt|date('Y-m-d H:i') }}</div>
+                                        {% if item.route %}
+                                            <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ path(item.route, item.routeParams) }}">Open</a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-body-secondary">No timeline items yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
             <div class="card shadow-sm h-100">
                 <div class="card-body">
                     <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">

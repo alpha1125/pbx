@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repository;
 
+use App\Entity\Property;
 use App\Entity\Rfq;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -72,6 +73,31 @@ class RfqRepository extends ServiceEntityRepository
         }
 
         return $qb->getQuery()->getOneOrNullResult();
+    }
+
+    /**
+     * @return list<Rfq>
+     */
+    public function findByPropertyAddress(Property $property, int $limit = 10): array
+    {
+        return $this->createQueryBuilder('rfq')
+            ->andWhere('LOWER(rfq.addressLine1) = :addressLine1')
+            ->andWhere('COALESCE(LOWER(rfq.addressLine2), \'\') = :addressLine2')
+            ->andWhere('LOWER(rfq.city) = :city')
+            ->andWhere('LOWER(rfq.province) = :province')
+            ->andWhere('UPPER(rfq.postalCode) = :postalCode')
+            ->andWhere('UPPER(rfq.country) = :country')
+            ->setParameter('addressLine1', mb_strtolower(trim($property->getAddressLine1())))
+            ->setParameter('addressLine2', null !== $property->getAddressLine2() ? mb_strtolower(trim($property->getAddressLine2())) : '')
+            ->setParameter('city', mb_strtolower(trim($property->getCity())))
+            ->setParameter('province', mb_strtolower(trim($property->getProvince())))
+            ->setParameter('postalCode', strtoupper(trim($property->getPostalCode())))
+            ->setParameter('country', strtoupper(trim($property->getCountry())))
+            ->orderBy('rfq.createdAt', 'DESC')
+            ->addOrderBy('rfq.id', 'DESC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
     }
 
     /**

@@ -10,7 +10,7 @@ use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
 /** @extends ServiceEntityRepository<CallSummary> */
-final class CallSummaryRepository extends ServiceEntityRepository
+final class CallSummaryRepository extends ServiceEntityRepository implements CallSummaryLookupInterface
 {
     public function __construct(ManagerRegistry $registry)
     {

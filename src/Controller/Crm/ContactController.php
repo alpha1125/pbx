@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace App\Controller\Crm;
 
 use App\Entity\Contact;
+use App\Entity\CsrPlaybookAttachment;
 use App\Entity\PropertyContact;
 use App\Repository\ContactRepository;
+use App\Repository\CsrPlaybookAttachmentRepository;
 use App\Repository\PropertyContactRepository;
 use App\Repository\PropertyRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CrmInputNormalizer;
+use App\Service\CsrPlaybookEngineService;
 use App\Service\CurrentTenantProviderInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -123,6 +126,8 @@ final class ContactController extends AbstractController
         PropertyRepository $propertyRepository,
         ContactRepository $contactRepository,
         PropertyContactRepository $propertyContactRepository,
+        CsrPlaybookAttachmentRepository $playbookAttachmentRepository,
+        CsrPlaybookEngineService $playbookEngine,
         CrmInputNormalizer $normalizer,
         ValidatorInterface $validator,
         EntityManagerInterface $entityManager,
@@ -179,6 +184,10 @@ final class ContactController extends AbstractController
             'propertyContact' => $propertyContact,
             'formAction' => $this->generateUrl('crm_contact_edit', ['propertyId' => $property->getId(), 'contactId' => $contact->getId()]),
             'title' => 'Edit Contact',
+            'csrPlaybooks' => $playbookEngine->all(),
+            'contactPlaybookAttachments' => $this->groupPlaybookAttachmentsByType(
+                $playbookAttachmentRepository->findByTenantAndContact($tenant, $contact),
+            ),
         ]);
     }
 
@@ -293,5 +302,20 @@ final class ContactController extends AbstractController
                 $propertyContact->setIsPrimary(false)->touch();
             }
         }
+    }
+
+    /**
+     * @param list<CsrPlaybookAttachment> $attachments
+     *
+     * @return array<string, CsrPlaybookAttachment>
+     */
+    private function groupPlaybookAttachmentsByType(array $attachments): array
+    {
+        $grouped = [];
+        foreach ($attachments as $attachment) {
+            $grouped[$attachment->getPlaybookType()] = $attachment;
+        }
+
+        return $grouped;
     }
 }

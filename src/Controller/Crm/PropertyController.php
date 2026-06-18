@@ -5,21 +5,38 @@ declare(strict_types=1);
 namespace App\Controller\Crm;
 
 use App\Entity\Property;
+use App\Entity\CustomerSentimentHistory;
 use App\Entity\CommunicationTimelineItem;
 use App\Entity\User;
+use App\Entity\MaintenancePlan;
+use App\Entity\PropertyMaintenancePlan;
+use App\Entity\CsrPlaybookAttachment;
 use App\Repository\AuditLogRepository;
+use App\Repository\ContactRepository;
+use App\Repository\CallSessionRepository;
+use App\Repository\CustomerSentimentHistoryRepository;
 use App\Repository\EquipmentRepository;
 use App\Repository\EquipmentServiceRecordRepository;
 use App\Repository\CommunicationTimelineItemRepository;
+use App\Repository\CsrPlaybookAttachmentRepository;
+use App\Repository\MaintenancePlanRepository;
+use App\Repository\NextBestActionSuggestionRepository;
 use App\Repository\PropertyContactRepository;
+use App\Repository\PropertyMaintenancePlanRepository;
 use App\Repository\PropertyRepository;
+use App\Repository\RetentionOpportunityRepository;
 use App\Repository\TaskRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\AuditLogger;
 use App\Service\CommunicationTimelineProjector;
 use App\Service\CrmInputNormalizer;
+use App\Service\CrmSuggestionService;
 use App\Service\CurrentTenantProviderInterface;
+use App\Service\CsrPlaybookEngineService;
+use App\Service\CustomerJourneyDashboardService;
+use App\Service\PropertyLifecycleTimelineService;
 use App\Service\TranscriptMessageViewBuilder;
+use App\Service\CustomerHealthCalculatorService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -218,6 +235,18 @@ final class PropertyController extends AbstractController
         TranscriptMessageViewBuilder $messageBuilder,
         EquipmentServiceRecordRepository $serviceRecordRepository,
         TaskRepository $taskRepository,
+        CrmSuggestionService $suggestionService,
+        PropertyMaintenancePlanRepository $maintenancePlanRepo,
+        MaintenancePlanRepository $maintenancePlanRepository,
+        RetentionOpportunityRepository $retentionOpportunityRepository,
+        CustomerSentimentHistoryRepository $sentimentHistoryRepository,
+        NextBestActionSuggestionRepository $nextBestActionSuggestionRepository,
+        CallSessionRepository $callSessionRepository,
+        CsrPlaybookAttachmentRepository $playbookAttachmentRepository,
+        CsrPlaybookEngineService $playbookEngine,
+        PropertyLifecycleTimelineService $propertyLifecycleTimelineService,
+        CustomerJourneyDashboardService $customerJourneyDashboardService,
+        CustomerHealthCalculatorService $healthCalculator,
     ): Response {
         $tenant = $tenantProvider->requireCurrentTenant();
         $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
@@ -233,6 +262,11 @@ final class PropertyController extends AbstractController
         $sublistPageSize = 10;
         $timelineFilter = (string) $request->query->get('activity', 'all');
         $searchQuery = trim((string) $request->query->get('q', ''));
+        $lifecycleFilter = (string) $request->query->get('lifecycleType', 'all');
+        $lifecycleSearch = trim((string) $request->query->get('lifecycleQ', ''));
+        if (!array_key_exists($lifecycleFilter, $propertyLifecycleTimelineService->typeOptions())) {
+            $lifecycleFilter = 'all';
+        }
         $timelineTypes = $this->timelineTypesForFilter($timelineFilter);
         $timelineItems = $timelineRepository->findByTenantAndPropertyOrdered(
             $tenant,
@@ -241,6 +275,42 @@ final class PropertyController extends AbstractController
             '' !== $searchQuery ? $searchQuery : null,
             100,
         );
+        $lifecycleTimeline = $propertyLifecycleTimelineService->buildForProperty(
+            $property,
+            $lifecycleFilter,
+            $lifecycleSearch,
+            100,
+        );
+        $customerJourneyDashboard = $customerJourneyDashboardService->buildForProperty($property);
+        $primaryBrowserCallContact = $propertyContactRepository->findPrimaryByProperty($property);
+        $sentimentContacts = $propertyContactRepository->findByProperty($property);
+        $recentCallSessions = $callSessionRepository->findRecentByProperty($property, 10);
+        $sentimentHistory = $sentimentHistoryRepository->findByTenantAndProperty($tenant, $property, 20);
+        $openRetentionOpportunities = $retentionOpportunityRepository->findOpenByTenantAndProperty($tenant, $property);
+        $playbooks = $playbookEngine->getRecommendedPlaybookTypes($openRetentionOpportunities);
+        $playbookTemplates = [];
+        foreach ($playbooks as $playbookType) {
+            $template = $playbookEngine->get($playbookType);
+            if (null !== $template) {
+                $playbookTemplates[] = $template;
+            }
+        }
+
+        $propertyPlaybookAttachments = $this->groupPlaybookAttachmentsByType(
+            $playbookAttachmentRepository->findByTenantAndProperty($tenant, $property),
+        );
+        $primaryContactPlaybookAttachments = [];
+        if (null !== $primaryBrowserCallContact) {
+            $primaryContactPlaybookAttachments[$primaryBrowserCallContact->getContact()->getId()] = $this->groupPlaybookAttachmentsByType(
+                $playbookAttachmentRepository->findByTenantAndContact($tenant, $primaryBrowserCallContact->getContact()),
+            );
+        }
+        $opportunityPlaybookAttachments = [];
+        foreach ($openRetentionOpportunities as $opportunity) {
+            $opportunityPlaybookAttachments[$opportunity->getId()] = $this->groupPlaybookAttachmentsByType(
+                $playbookAttachmentRepository->findByTenantAndOpportunity($tenant, $opportunity),
+            );
+        }
         $transcriptMessages = [];
         foreach ($timelineItems as $item) {
             if (CommunicationTimelineItem::TYPE_TRANSCRIPT !== $item->getItemType()) {
@@ -269,9 +339,213 @@ final class PropertyController extends AbstractController
             'timelineItems' => $timelineItems,
             'timelineFilter' => $timelineFilter,
             'timelineSearch' => $searchQuery,
+            'lifecycleTimeline' => $lifecycleTimeline,
+            'customerJourneyDashboard' => $customerJourneyDashboard,
             'transcriptMessages' => $transcriptMessages,
+            'primaryBrowserCallContact' => $primaryBrowserCallContact,
+            'suggestions' => $suggestionService->buildForProperty($property),
+            'healthScore' => $healthCalculator->calculate($property),
+            'assignedPlans' => $maintenancePlanRepo->findByProperty($property),
+            'availableMaintenancePlans' => $this->findAvailableMaintenancePlans($maintenancePlanRepository, $tenant),
+            'retentionOpportunities' => $openRetentionOpportunities,
+            'nextBestActionSuggestions' => $nextBestActionSuggestionRepository->findByTenantAndPropertyOrdered($tenant, $property),
             'auditLogs' => $auditLogRepository->findRecentByProperty($tenant, $property),
+            'sentimentHistory' => $sentimentHistory,
+            'sentimentContacts' => $sentimentContacts,
+            'recentCallSessions' => $recentCallSessions,
+            'sentimentOptions' => CustomerSentimentHistory::getSentimentKeys(),
+            'csrPlaybooks' => $playbookTemplates,
+            'propertyPlaybookAttachments' => $propertyPlaybookAttachments,
+            'contactPlaybookAttachments' => $primaryContactPlaybookAttachments,
+            'opportunityPlaybookAttachments' => $opportunityPlaybookAttachments,
         ]);
+    }
+
+    #[Route('/crm/properties/{id<\d+>}/sentiments', name: 'crm_property_sentiment_add', methods: ['POST'])]
+    public function addSentiment(
+        int $id,
+        Request $request,
+        CurrentTenantProviderInterface $tenantProvider,
+        PropertyRepository $propertyRepository,
+        ContactRepository $contactRepository,
+        PropertyContactRepository $propertyContactRepository,
+        CallSessionRepository $callSessionRepository,
+        EntityManagerInterface $entityManager,
+        AuditLogger $auditLogger,
+    ): RedirectResponse {
+        $tenant = $tenantProvider->requireCurrentTenant();
+        $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
+        if (null === $property) {
+            throw $this->createNotFoundException('Property not found.');
+        }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $property);
+
+        if (!$this->isCsrfTokenValid('crm_property_sentiment_'.$property->getId(), (string) $request->request->get('_token'))) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $sentiment = (string) $request->request->get('sentiment', '');
+        if (!in_array($sentiment, CustomerSentimentHistory::getSentimentKeys(), true)) {
+            $this->addFlash('error', 'Choose a valid sentiment.');
+
+            return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+        }
+
+        $note = trim((string) $request->request->get('note', ''));
+        $currentUser = $this->getUser();
+        if (!$currentUser instanceof User) {
+            throw $this->createAccessDeniedException('You must be signed in to record sentiment.');
+        }
+
+        $history = new CustomerSentimentHistory(
+            $tenant,
+            $property,
+            $currentUser,
+            $sentiment,
+            '' !== $note ? $note : null,
+        );
+
+        $contactId = (int) $request->request->get('contactId', 0);
+        if ($contactId > 0) {
+            $contact = $contactRepository->findOneByTenantAndId($tenant, $contactId);
+            if (null === $contact) {
+                throw $this->createNotFoundException('Contact not found.');
+            }
+
+            $propertyContact = $propertyContactRepository->findOneByTenantPropertyAndContact($tenant, $property, $contact);
+            if (null === $propertyContact) {
+                throw $this->createNotFoundException('Contact is not linked to this property.');
+            }
+
+            $history->setContact($contact);
+        }
+
+        $callSessionId = (int) $request->request->get('callSessionId', 0);
+        if ($callSessionId > 0) {
+            $callSession = $callSessionRepository->findOneByTenantAndId($tenant, $callSessionId);
+            if (null === $callSession || null === $callSession->getProperty() || $callSession->getProperty()->getId() !== $property->getId()) {
+                throw $this->createNotFoundException('Call session not found.');
+            }
+
+            $history->setCallSession($callSession);
+        }
+
+        $entityManager->persist($history);
+        $entityManager->flush();
+        $auditLogger->log($tenant, 'customer_sentiment_history', (string) $history->getId(), 'customer_sentiment.created', null, [
+            'propertyId' => $property->getId(),
+            'sentiment' => $history->getSentiment(),
+        ]);
+
+        $this->addFlash('success', 'Sentiment recorded.');
+
+        return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+    }
+
+    #[Route('/crm/properties/{id<\d+>}/maintenance-plans', name: 'crm_property_maintenance_plan_assign', methods: ['POST'])]
+    public function assignMaintenancePlan(
+        int $id,
+        Request $request,
+        CurrentTenantProviderInterface $tenantProvider,
+        PropertyRepository $propertyRepository,
+        MaintenancePlanRepository $maintenancePlanRepository,
+        PropertyMaintenancePlanRepository $propertyMaintenancePlanRepository,
+        EntityManagerInterface $entityManager,
+        AuditLogger $auditLogger,
+    ): RedirectResponse {
+        $tenant = $tenantProvider->requireCurrentTenant();
+        $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
+        if (null === $property) {
+            throw $this->createNotFoundException('Property not found.');
+        }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $property);
+
+        if (!$this->isCsrfTokenValid('crm_property_maintenance_plan_assign_'.$property->getId(), (string) $request->request->get('_token'))) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $maintenancePlanId = (int) $request->request->get('maintenancePlanId', 0);
+        if ($maintenancePlanId <= 0) {
+            $this->addFlash('error', 'Choose a maintenance plan to assign.');
+
+            return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+        }
+
+        $maintenancePlan = $maintenancePlanRepository->findOneByTenantAndId($tenant, $maintenancePlanId);
+        if (null === $maintenancePlan) {
+            throw $this->createNotFoundException('Maintenance plan not found.');
+        }
+
+        $existing = $propertyMaintenancePlanRepository->findOneByTenantPropertyAndMaintenancePlan($tenant, $property, $maintenancePlan);
+        if (null !== $existing) {
+            $this->addFlash('info', 'That plan is already assigned to this property.');
+
+            return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+        }
+
+        $assignment = new PropertyMaintenancePlan($tenant, $property, $maintenancePlan);
+        $entityManager->persist($assignment);
+        $entityManager->flush();
+
+        $auditLogger->log($tenant, 'property_maintenance_plan', (string) $assignment->getId(), 'property_maintenance_plan.assigned', null, [
+            'propertyId' => $property->getId(),
+            'maintenancePlanId' => $maintenancePlan->getId(),
+            'maintenancePlanName' => $maintenancePlan->getName(),
+        ]);
+
+        $this->addFlash('success', 'Maintenance plan assigned.');
+
+        return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+    }
+
+    #[Route('/crm/properties/{id<\d+>}/maintenance-plans/{assignmentId<\d+>}/cancel', name: 'crm_property_maintenance_plan_cancel', methods: ['POST'])]
+    public function cancelMaintenancePlan(
+        int $id,
+        int $assignmentId,
+        Request $request,
+        CurrentTenantProviderInterface $tenantProvider,
+        PropertyRepository $propertyRepository,
+        PropertyMaintenancePlanRepository $propertyMaintenancePlanRepository,
+        EntityManagerInterface $entityManager,
+        AuditLogger $auditLogger,
+    ): RedirectResponse {
+        $tenant = $tenantProvider->requireCurrentTenant();
+        $property = $propertyRepository->findOneByTenantAndId($tenant, $id);
+        if (null === $property) {
+            throw $this->createNotFoundException('Property not found.');
+        }
+
+        $this->denyAccessUnlessGranted(TenantScopedEntityVoter::EDIT, $property);
+
+        $assignment = $propertyMaintenancePlanRepository->findOneByTenantAndId($tenant, $assignmentId);
+        if (null === $assignment || $assignment->getProperty()->getId() !== $property->getId()) {
+            throw $this->createNotFoundException('Maintenance plan assignment not found.');
+        }
+
+        if (!$this->isCsrfTokenValid('crm_property_maintenance_plan_cancel_'.$assignment->getId(), (string) $request->request->get('_token'))) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $assignment->cancel();
+        $entityManager->flush();
+        $auditLogger->log($tenant, 'property_maintenance_plan', (string) $assignment->getId(), 'property_maintenance_plan.cancelled', null, [
+            'propertyId' => $property->getId(),
+            'maintenancePlanId' => $assignment->getMaintenancePlan()->getId(),
+        ]);
+
+        $this->addFlash('success', 'Maintenance plan assignment cancelled.');
+
+        return $this->redirectToRoute('crm_property_show', ['id' => $property->getId()]);
+    }
+
+    /**
+     * @return list<MaintenancePlan>
+     */
+    private function findAvailableMaintenancePlans(MaintenancePlanRepository $repo, \App\Entity\Tenant $tenant): array
+    {
+        return $repo->findByTenant($tenant);
     }
 
     #[Route('/crm/properties/{id<\d+>}/timeline/notes', name: 'crm_property_timeline_note', methods: ['POST'])]
@@ -427,5 +701,20 @@ final class PropertyController extends AbstractController
             CommunicationTimelineItem::DISPOSITION_JOB_BOOKED,
             CommunicationTimelineItem::DISPOSITION_SPAM,
         ], true) ? $value : null;
+    }
+
+    /**
+     * @param list<CsrPlaybookAttachment> $attachments
+     *
+     * @return array<string, CsrPlaybookAttachment>
+     */
+    private function groupPlaybookAttachmentsByType(array $attachments): array
+    {
+        $grouped = [];
+        foreach ($attachments as $attachment) {
+            $grouped[$attachment->getPlaybookType()] = $attachment;
+        }
+
+        return $grouped;
     }
 }

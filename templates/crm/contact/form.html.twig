@@ -76,6 +76,96 @@
                                 <button class="btn btn-outline-danger" type="submit" onclick="return confirm('Archive this contact?')">Archive Contact</button>
                             </div>
                         </form>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">CSR Playbooks</h2>
+                                <p class="text-body-secondary mb-0">Fixed templates for this contact context. No AI-generated scripts are used.</p>
+                            </div>
+                        </div>
+                        <div class="accordion" id="contact-playbook-accordion">
+                            {% for playbook in csrPlaybooks %}
+                                <div class="accordion-item">
+                                    <h3 class="accordion-header" id="contact-playbook-heading-{{ loop.index }}">
+                                        <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#contact-playbook-collapse-{{ loop.index }}" aria-expanded="{{ loop.first ? 'true' : 'false' }}" aria-controls="contact-playbook-collapse-{{ loop.index }}">
+                                            {{ playbook.title }}
+                                        </button>
+                                    </h3>
+                                    <div id="contact-playbook-collapse-{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="contact-playbook-heading-{{ loop.index }}" data-bs-parent="#contact-playbook-accordion">
+                                        <div class="accordion-body">
+                                            <div class="row g-4">
+                                                <div class="col-lg-7">
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Purpose</div>
+                                                        <div>{{ playbook.purpose }}</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Opening Prompt</div>
+                                                        <div>{{ playbook.openingPrompt }}</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Qualification Questions</div>
+                                                        <ul class="mb-0">
+                                                            {% for question in playbook.qualificationQuestions %}
+                                                                <li>{{ question }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Objection Handling</div>
+                                                        <ul class="mb-0">
+                                                            {% for note in playbook.objectionHandlingNotes %}
+                                                                <li>{{ note }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <div class="small text-body-secondary fw-semibold">Suggested Next Steps</div>
+                                                        <ul class="mb-0">
+                                                            {% for step in playbook.suggestedNextSteps %}
+                                                                <li>{{ step }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                    <div>
+                                                        <div class="small text-body-secondary fw-semibold">Compliance Notes</div>
+                                                        <ul class="mb-0">
+                                                            {% for note in playbook.complianceNotes %}
+                                                                <li>{{ note }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div class="col-lg-5">
+                                                    <div class="border rounded-3 p-3 bg-body-tertiary">
+                                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                                            <div class="fw-semibold">Contact Attachment</div>
+                                                            {% if contactPlaybookAttachments[playbook.type] is defined %}
+                                                                <span class="badge text-bg-success">Attached</span>
+                                                            {% else %}
+                                                                <span class="badge text-bg-secondary">Available</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        {% if contactPlaybookAttachments[playbook.type] is defined %}
+                                                            <div class="small text-body-secondary">Already attached to this contact.</div>
+                                                        {% else %}
+                                                            <form method="post" action="{{ path('crm_csr_playbook_attach') }}" class="mt-2">
+                                                                <input type="hidden" name="_token" value="{{ csrf_token('crm_csr_playbook_attach_' ~ playbook.type ~ '_0_' ~ contact.id ~ '_0') }}">
+                                                                <input type="hidden" name="_returnTo" value="{{ path('crm_property_show', {id: property.id}) }}">
+                                                                <input type="hidden" name="playbookType" value="{{ playbook.type }}">
+                                                                <input type="hidden" name="contactId" value="{{ contact.id }}">
+                                                                <button class="btn btn-sm btn-outline-primary" type="submit">Attach to Contact</button>
+                                                            </form>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
                     {% endif %}
                 </div>
             </div>

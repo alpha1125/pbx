@@ -17,6 +17,7 @@ class TelnyxCallProjectionService
     /** @var array<string, int> */
     private const array STATUS_RANK = [
         'initiated' => 10,
+        'ringing' => 15,
         'answered' => 20,
         'bridging' => 30,
         'bridged' => 40,
@@ -30,6 +31,7 @@ class TelnyxCallProjectionService
         private readonly EntityManagerInterface $entityManager,
         private readonly ClientStateService $clientState,
         private readonly CommunicationTimelineProjector $timelineProjector,
+        private readonly CallEventEngineService $callEventEngine,
     ) {
     }
 
@@ -67,6 +69,7 @@ class TelnyxCallProjectionService
         $this->applyEvent($event->getEventType(), $session, $leg, $payload, $occurredAt);
         $session->touch();
         $leg?->touch();
+        $this->callEventEngine->record($event, $session, $leg, $payload, $occurredAt);
 
         $this->entityManager->flush();
         if (null !== $session->getProperty()) {
@@ -118,6 +121,7 @@ class TelnyxCallProjectionService
         if ('call.initiated' === $eventType) {
             $startedAt = $this->dateValue($payload['start_time'] ?? null) ?? $occurredAt;
             $this->advanceStatus($session, 'initiated');
+            $session->setCallState(CallSession::CALL_STATE_INITIATED);
             $session->setStartedAt($session->getStartedAt() ?? $startedAt);
             if ('incoming' === $this->stringValue($payload, 'direction') && null === $session->getFlowType()) {
                 $session->setFlowType(CallSession::FLOW_TYPE_INBOUND_FORWARD);
@@ -130,8 +134,19 @@ class TelnyxCallProjectionService
             return;
         }
 
+        if ('call.ringing' === $eventType) {
+            $this->advanceStatus($session, 'ringing');
+            $session->setCallState(CallSession::CALL_STATE_RINGING);
+            if (null !== $leg) {
+                $this->advanceStatus($leg, 'ringing');
+            }
+
+            return;
+        }
+
         if ('call.answered' === $eventType) {
             $this->advanceStatus($session, 'answered');
+            $session->setCallState(CallSession::CALL_STATE_CONNECTED);
             $session->setAnsweredAt($session->getAnsweredAt() ?? $occurredAt);
             if (null !== $leg) {
                 $this->advanceStatus($leg, 'answered');
@@ -143,8 +158,48 @@ class TelnyxCallProjectionService
 
         if (in_array($eventType, ['call.bridged', 'call.bridge'], true)) {
             $this->advanceStatus($session, 'bridged');
+            $session->setCallState(CallSession::CALL_STATE_CONNECTED);
             if (null !== $leg) {
                 $this->advanceStatus($leg, 'bridged');
+            }
+
+            return;
+        }
+
+        if ('call.failed' === $eventType) {
+            $endedAt = $occurredAt;
+            if (null !== $leg) {
+                $this->advanceStatus($leg, 'failed');
+                $leg->setEndedAt($leg->getEndedAt() ?? $endedAt);
+            }
+            if (null === $leg || !$this->legRepository->hasOtherActiveLegs($session, $leg)) {
+                $this->advanceStatus($session, 'failed');
+                $session->setCallState(CallSession::CALL_STATE_FAILED);
+                $session->setEndedAt($endedAt);
+                $session->setStatus('failed')->setHangupCause($this->stringValue($payload, 'hangup_cause') ?? $session->getHangupCause())->setHangupSource($this->stringValue($payload, 'hangup_source') ?? $session->getHangupSource());
+            } elseif (null !== $session->getEndedAt()) {
+                $session->setEndedAt(null);
+            }
+
+            return;
+        }
+
+        if ('call.completed' === $eventType) {
+            $endedAt = $this->dateValue($payload['end_time'] ?? null) ?? $occurredAt;
+            if (null !== $leg) {
+                $this->advanceStatus($leg, 'completed');
+                $leg->setEndedAt($leg->getEndedAt() ?? $endedAt);
+            }
+            if (null === $leg || !$this->legRepository->hasOtherActiveLegs($session, $leg)) {
+                $this->advanceStatus($session, 'completed');
+                $session->setCallState(CallSession::CALL_STATE_COMPLETED);
+                $session->setEndedAt($session->getEndedAt() ?? $endedAt);
+                $session
+                    ->setStatus('completed')
+                    ->setHangupCause($this->stringValue($payload, 'hangup_cause') ?? $session->getHangupCause())
+                    ->setHangupSource($this->stringValue($payload, 'hangup_source') ?? $session->getHangupSource());
+            } elseif (null !== $session->getEndedAt()) {
+                $session->setEndedAt(null);
             }
 
             return;
@@ -175,11 +230,14 @@ class TelnyxCallProjectionService
             ->setSipHangupCause($this->stringValue($payload, 'sip_hangup_cause'));
 
         if (!$this->legRepository->hasOtherActiveLegs($session, $leg)) {
+            $session->setCallState(CallSession::CALL_STATE_COMPLETED);
             $session
                 ->setStatus('completed')
                 ->setEndedAt($endedAt)
                 ->setHangupCause($hangupCause)
                 ->setHangupSource($hangupSource);
+        } elseif (null !== $session->getEndedAt()) {
+            $session->setEndedAt(null);
         }
     }
 

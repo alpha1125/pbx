@@ -28,4 +28,34 @@ class EstimateRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['tenant' => $tenant, 'id' => $id]);
     }
+
+    public function countCreatedBetween(Tenant $tenant, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return (int) $this->createQueryBuilder('estimate')
+            ->select('COUNT(estimate.id)')
+            ->andWhere('estimate.tenant = :tenant')
+            ->andWhere('estimate.createdAt >= :from')
+            ->andWhere('estimate.createdAt < :to')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    public function countConvertedToQuoteBetween(Tenant $tenant, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return (int) $this->createQueryBuilder('estimate')
+            ->select('COUNT(estimate.id)')
+            ->andWhere('estimate.tenant = :tenant')
+            ->andWhere('estimate.status = :status')
+            ->andWhere('estimate.updatedAt >= :from')
+            ->andWhere('estimate.updatedAt < :to')
+            ->setParameter('tenant', $tenant)
+            ->setParameter('status', Estimate::STATUS_CONVERTED_TO_QUOTE)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

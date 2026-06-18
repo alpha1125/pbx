@@ -104,6 +104,43 @@
                     </form>
                 </div>
             </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h2 class="h5">Sales and Service Suggestions</h2>
+                    <p class="text-body-secondary small mb-3">Suggested follow-up tasks and estimate line items from the latest conversation and service history.</p>
+
+                    <div class="mb-3">
+                        <div class="fw-semibold mb-2">Suggested Line Items</div>
+                        <div class="d-grid gap-2">
+                            {% for suggestion in suggestions.lineItemSuggestions %}
+                                <div class="border rounded-3 p-2 bg-body-tertiary">
+                                    <div class="fw-semibold">{{ suggestion.title }}</div>
+                                    <div class="small text-body-secondary">{{ suggestion.description }}</div>
+                                    <div class="small mt-1">{{ suggestion.reason }}</div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary small">No line item suggestions right now.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="fw-semibold mb-2">Follow-up Suggestions</div>
+                        <div class="d-grid gap-2">
+                            {% for suggestion in suggestions.followUpSuggestions %}
+                                <div class="border rounded-3 p-2 bg-body-tertiary">
+                                    <div class="fw-semibold">{{ suggestion.title }}</div>
+                                    <div class="small text-body-secondary">{{ suggestion.description }}</div>
+                                    <div class="small mt-1">{{ suggestion.reason }}</div>
+                                </div>
+                            {% else %}
+                                <div class="text-body-secondary small">No follow-up suggestions right now.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h2 class="h5">Add Line Item</h2>

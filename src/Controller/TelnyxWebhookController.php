@@ -14,6 +14,7 @@ use App\Service\CapturePolicyResolver;
 use App\Service\ClickToCallService;
 use App\Service\DevTelnyxTranscriptionTestService;
 use App\Service\TelnyxCaptureService;
+use App\Service\BrowserCallEventReconcilerService;
 use App\Service\TelnyxRecordingProjectionService;
 use App\Service\TelnyxTranscriptionService;
 use App\Transcription\SttProviderRegistry;
@@ -48,6 +49,7 @@ final class TelnyxWebhookController extends AbstractController
         TelnyxEventRepository $repository,
         EntityManagerInterface $entityManager,
         TelnyxCallProjectionService $callProjection,
+        BrowserCallEventReconcilerService $reconciler,
         TelnyxRecordingProjectionService $recordingProjection,
         TelnyxCaptureService $capture,
         DevTelnyxTranscriptionTestService $transcriptionTest,
@@ -101,6 +103,11 @@ final class TelnyxWebhookController extends AbstractController
 
         try {
             $callProjection->project($event, $data);
+
+            // Phase 9K: Reconcile Telnyx webhook state with any pending browser events.
+            if (null !== $event->getCallSession()) {
+                $reconciler->reconcileWebhook($callProjection, $event, $data);
+            }
         } catch (\Throwable $exception) {
             $this->logger->error('Telnyx call-state projection failed after webhook persistence.', [
                 'provider_event_id' => $providerEventId,

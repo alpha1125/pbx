@@ -100,6 +100,56 @@ final class TelnyxCallControlService
     }
 
     /** @return array<string, mixed>|null */
+    public function stopTranscription(string $callControlId, ?string $commandId = null): ?array
+    {
+        return $this->postAction($callControlId, 'transcription_stop', [], [], $commandId);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function playDtmf(string $callControlId, string $dtmfTones, ?string $commandId = null): ?array
+    {
+        $body = [
+            'dtmf_tones' => trim($dtmfTones),
+            'duration_ms' => 200,
+            'volume_db' => 0,
+            'inter_tone_gap_ms' => 50,
+        ];
+
+        if ('' === $body['dtmf_tones']) {
+            return null;
+        }
+
+        return $this->post(
+            sprintf('/calls/%s/actions/play_dtmf', rawurlencode($callControlId)),
+            'play_dtmf',
+            $body,
+            ['call_control_id' => $callControlId],
+            $commandId,
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    public function mute(string $callControlId, bool $mute = true, ?string $commandId = null): ?array
+    {
+        // Telnyx WebRTC supports muting via the play_audio action with empty text.
+        // For platform control: we use 'pause' on active audio or send a specific mute flag.
+        // Since Telnyx Call Control doesn't have a dedicated mute action, we use
+        // the call-control pause endpoint which stops media relay for this leg.
+        $body = [
+            'action' => $mute ? 'pause' : 'resume',
+        ];
+
+        $action = $mute ? 'pause' : 'resume';
+        return $this->post(
+            sprintf('/calls/%s/actions/%s', rawurlencode($callControlId), $action),
+            $action,
+            $body,
+            ['call_control_id' => $callControlId],
+            $commandId,
+        );
+    }
+
+    /** @return array<string, mixed>|null */
     public function dial(
         string $connectionId,
         string $from,

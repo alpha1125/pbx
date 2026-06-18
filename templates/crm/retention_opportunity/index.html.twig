@@ -1,0 +1,100 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Retention Opportunities{% endblock %}
+
+{% block body %}
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h2 mb-1">Retention Opportunities</h1>
+            <p class="text-body-secondary mb-0">Deterministic opportunities derived from customer health, service recency, equipment age, invoices, calls, and maintenance coverage.</p>
+        </div>
+        <form method="post" action="{{ path('crm_retention_opportunity_generate') }}">
+            <input type="hidden" name="_token" value="{{ csrf_token('crm_retention_opportunity_generate_' ~ tenant.id) }}">
+            <button class="btn btn-primary" type="submit">Generate For Tenant</button>
+        </form>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="text-body-secondary small">Open opportunities</div>
+                    <div class="display-6 fw-semibold">{{ openCount }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="text-body-secondary small">Total opportunities</div>
+                    <div class="display-6 fw-semibold">{{ opportunities|length }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="text-body-secondary small">Tenant scope</div>
+                    <div class="fw-semibold">{{ tenant.name }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Property</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Detected</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for opportunity in opportunities %}
+                            <tr>
+                                <td>
+                                    <a href="{{ path('crm_property_show', {id: opportunity.property.id}) }}" class="text-decoration-none">{{ opportunity.property.displayAddress }}</a>
+                                    {% if opportunity.contact %}
+                                        <div class="small text-body-secondary">{{ opportunity.contact.displayName }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ opportunity.opportunityTypeLabel }}</td>
+                                <td>
+                                    <span class="badge text-bg-{% if opportunity.status == 'open' %}warning{% elseif opportunity.status == 'reviewed' %}primary{% elseif opportunity.status == 'dismissed' %}secondary{% else %}success{% endif %}">
+                                        {{ opportunity.statusLabel }}
+                                    </span>
+                                </td>
+                                <td class="small">{{ opportunity.detectedReason }}</td>
+                                <td class="small text-body-secondary">{{ opportunity.detectedAt|date('Y-m-d H:i') }}</td>
+                                <td class="text-end">
+                                    {% if opportunity.status == 'open' %}
+                                        <div class="d-inline-flex gap-1 flex-wrap justify-content-end">
+                                            {% for status in ['reviewed', 'dismissed', 'converted'] %}
+                                                <form method="post" action="{{ path('crm_retention_opportunity_update_status', {id: opportunity.id, status: status}) }}">
+                                                    <input type="hidden" name="_token" value="{{ csrf_token('crm_retention_opportunity_status_' ~ opportunity.id) }}">
+                                                    <button class="btn btn-sm btn-outline-secondary" type="submit">{{ status|replace({'_':' '})|title }}</button>
+                                                </form>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <span class="text-body-secondary small">No actions</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-body-secondary">No retention opportunities yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

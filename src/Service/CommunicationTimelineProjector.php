@@ -27,6 +27,7 @@ class CommunicationTimelineProjector implements InvoiceTimelineProjectorInterfac
         private readonly CallRecordingRepository $recordings,
         private readonly CallTranscriptRepository $transcripts,
         private readonly CallSummaryRepository $summaries,
+        private readonly CallInsightService $callInsights,
         private readonly CommunicationTimelineItemRepository $timeline,
         private readonly EntityManagerInterface $entityManager,
     ) {
@@ -151,6 +152,46 @@ class CommunicationTimelineProjector implements InvoiceTimelineProjectorInterfac
         $this->entityManager->flush();
     }
 
+    /**
+     * @param array<string, mixed>|null $metadata
+     */
+    public function recordCallEvent(CallSession $session, string $action, ?string $bodyText = null, ?array $metadata = null): void
+    {
+        if (null === $session->getId() || null === $session->getTenant()) {
+            return;
+        }
+
+        $item = $this->findOrCreate(
+            sprintf('call_event:%d:%s', $session->getId(), $action),
+            $session->getTenant(),
+            CommunicationTimelineItem::TYPE_STATUS_CHANGE,
+            $session->getLastEventAt() ?? $session->getStartedAt() ?? $session->getCreatedAt(),
+        );
+
+        $item
+            ->setProperty($session->getProperty())
+            ->setContact($session->getContact())
+            ->setEstimate($session->getEstimate())
+            ->setQuote($session->getQuote())
+            ->setInvoice($session->getInvoice())
+            ->setRfqInvitation($session->getRfqInvitation())
+            ->setCallSession($session)
+            ->setOccurredAt($session->getLastEventAt() ?? $session->getStartedAt() ?? $session->getCreatedAt())
+            ->setBodyText($bodyText ?? sprintf('Call event: %s.', $action))
+            ->setMetadata(array_merge([
+                'action' => $action,
+                'status' => $session->getStatus(),
+                'callState' => $session->getCallState(),
+                'callMode' => $session->getCallMode(),
+                'flowType' => $session->getFlowType(),
+                'hangupCause' => $session->getHangupCause(),
+                'hangupSource' => $session->getHangupSource(),
+            ], $metadata ?? []))
+            ->touch($session->getUpdatedAt());
+
+        $this->entityManager->flush();
+    }
+
     private function upsertCall(CallSession $session, ?int $durationSeconds): void
     {
         if (null === $session->getId() || null === $session->getTenant()) {
@@ -263,6 +304,7 @@ class CommunicationTimelineProjector implements InvoiceTimelineProjectorInterfac
                 'model' => $transcript->getModel(),
                 'language' => $transcript->getLanguage(),
                 'durationSeconds' => $transcript->getDurationSeconds(),
+                'aiInsights' => $this->callInsights->buildForTranscript($transcript),
             ])
             ->touch($transcript->getUpdatedAt());
     }
@@ -304,6 +346,7 @@ class CommunicationTimelineProjector implements InvoiceTimelineProjectorInterfac
                 'provider' => $summary->getProvider(),
                 'model' => $summary->getModel(),
                 'summaryJson' => $summary->getSummaryJson(),
+                'aiInsights' => $this->callInsights->buildForSummary($summary),
             ])
             ->touch($summary->getUpdatedAt());
     }

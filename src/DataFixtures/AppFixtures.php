@@ -43,7 +43,7 @@ class AppFixtures extends Fixture
             ->setFirstName('Demo')
             ->setLastName('User')
             ->setDisplayName('Demo User')
-            ->setCellPhone('+14165550100')
+            ->setCellPhone('+16472329595')
             ->setRoles(['ROLE_USER']);
         $user->setPassword($this->passwordHasher->hashPassword($user, 'demo1234'));
         $manager->persist($user);

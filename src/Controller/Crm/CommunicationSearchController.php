@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Controller\Crm;
 
 use App\Repository\CommunicationTimelineItemRepository;
+use App\Repository\CallTranscriptSegmentRepository;
 use App\Service\CommunicationTimelineProjector;
 use App\Repository\PropertyRepository;
 use App\Service\CurrentTenantProviderInterface;
+use App\Entity\CommunicationTimelineItem;
+use App\Entity\CallTranscriptSegment;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,6 +24,7 @@ final class CommunicationSearchController extends AbstractController
         CurrentTenantProviderInterface $tenantProvider,
         PropertyRepository $propertyRepository,
         CommunicationTimelineItemRepository $timelineRepository,
+        CallTranscriptSegmentRepository $segmentRepository,
         CommunicationTimelineProjector $timelineProjector,
     ): Response {
         $tenant = $tenantProvider->requireCurrentTenant();
@@ -39,9 +43,18 @@ final class CommunicationSearchController extends AbstractController
             default => null,
         };
 
-        $results = [] === $search
-            ? []
-            : $timelineRepository->searchByTenant($tenant, $search, $itemTypes, 100);
+        $results = [];
+        if ('' !== $search) {
+            foreach ($timelineRepository->searchByTenant($tenant, $search, $itemTypes, 100) as $item) {
+                $results[] = $this->timelineResult($item);
+            }
+
+            foreach ($segmentRepository->searchByTenant($tenant, $search, 50) as $segment) {
+                $results[] = $this->segmentResult($segment);
+            }
+        }
+
+        usort($results, static fn (array $left, array $right): int => strcmp($right['occurredAt'], $left['occurredAt']));
 
         return $this->render('crm/communication/search.html.twig', [
             'tenant' => $tenant,
@@ -49,5 +62,58 @@ final class CommunicationSearchController extends AbstractController
             'activityFilter' => $filter,
             'results' => $results,
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function timelineResult(\App\Entity\CommunicationTimelineItem $item): array
+    {
+        return [
+            'resultType' => 'timeline',
+            'itemType' => $item->getItemType(),
+            'property' => $item->getProperty(),
+            'contact' => $item->getContact(),
+            'bodyText' => $item->getBodyText(),
+            'occurredAt' => $item->getOccurredAt()->format(DATE_ATOM),
+            'detailUrl' => null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function segmentResult(\App\Entity\CallTranscriptSegment $segment): array
+    {
+        $transcript = $segment->getCallTranscript();
+        $session = $segment->getCallSession();
+        $contact = $session?->getContact();
+        $property = $session?->getProperty();
+        $text = trim($segment->getText());
+
+        return [
+            'resultType' => 'transcript_segment',
+            'itemType' => 'transcript segment',
+            'property' => $property,
+            'contact' => $contact,
+            'bodyText' => $this->excerpt($text),
+            'fullText' => $text,
+            'occurredAt' => $segment->getOccurredAt()->format(DATE_ATOM),
+            'detailUrl' => null !== $transcript->getId() ? '/transcripts/'.$transcript->getId().'/messages' : null,
+        ];
+    }
+
+    private function excerpt(string $text, int $limit = 220): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? '');
+        if ('' === $text) {
+            return '';
+        }
+
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        return mb_strimwidth($text, 0, $limit - 1, '…');
     }
 }
