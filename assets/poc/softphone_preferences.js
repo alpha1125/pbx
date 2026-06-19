@@ -1,12 +1,15 @@
 const STORAGE_KEY = 'pbx.softphone.preferences';
 
 const DEFAULT_PREFERENCES = Object.freeze({
-    selectedMicrophone: '',
-    selectedSpeaker: '',
+    selectedMicrophone: null,
+    selectedSpeaker: null,
     audio: {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: false,
+    },
+    diagnostics: {
+        enabled: true,
     },
     speakerVolume: 1,
 });
@@ -20,6 +23,18 @@ function toBoolean(value, fallback) {
 }
 
 function toStringValue(value, fallback = '') {
+    if (null === value) {
+        return null;
+    }
+
+    return 'string' === typeof value ? value : fallback;
+}
+
+function toNullableStringValue(value, fallback = null) {
+    if (null === value) {
+        return null;
+    }
+
     return 'string' === typeof value ? value : fallback;
 }
 
@@ -30,18 +45,23 @@ function toNumberValue(value, fallback = 1) {
 function normalizePreferences(preferences) {
     const source = isObject(preferences) ? preferences : {};
     const audio = isObject(source.audio) ? source.audio : {};
+    const diagnostics = isObject(source.diagnostics) ? source.diagnostics : {};
 
     return {
         ...DEFAULT_PREFERENCES,
         ...source,
-        selectedMicrophone: toStringValue(source.selectedMicrophone, DEFAULT_PREFERENCES.selectedMicrophone),
-        selectedSpeaker: toStringValue(source.selectedSpeaker, DEFAULT_PREFERENCES.selectedSpeaker),
+        selectedMicrophone: toNullableStringValue(source.selectedMicrophone, DEFAULT_PREFERENCES.selectedMicrophone),
+        selectedSpeaker: toNullableStringValue(source.selectedSpeaker, DEFAULT_PREFERENCES.selectedSpeaker),
         speakerVolume: Math.min(1, Math.max(0, toNumberValue(source.speakerVolume, DEFAULT_PREFERENCES.speakerVolume))),
         audio: {
             ...DEFAULT_PREFERENCES.audio,
             echoCancellation: toBoolean(audio.echoCancellation, DEFAULT_PREFERENCES.audio.echoCancellation),
             noiseSuppression: toBoolean(audio.noiseSuppression, DEFAULT_PREFERENCES.audio.noiseSuppression),
             autoGainControl: toBoolean(audio.autoGainControl, DEFAULT_PREFERENCES.audio.autoGainControl),
+        },
+        diagnostics: {
+            ...DEFAULT_PREFERENCES.diagnostics,
+            enabled: toBoolean(diagnostics.enabled, DEFAULT_PREFERENCES.diagnostics.enabled),
         },
     };
 }
@@ -88,7 +108,7 @@ export const SoftphonePreferences = {
 
     setMicrophone(deviceId, preferences = null) {
         const normalized = normalizePreferences(preferences);
-        normalized.selectedMicrophone = toStringValue(deviceId, '');
+        normalized.selectedMicrophone = toNullableStringValue(deviceId, null);
         return this.save(normalized);
     },
 
@@ -98,7 +118,7 @@ export const SoftphonePreferences = {
 
     setSpeaker(deviceId, preferences = null) {
         const normalized = normalizePreferences(preferences);
-        normalized.selectedSpeaker = toStringValue(deviceId, '');
+        normalized.selectedSpeaker = toNullableStringValue(deviceId, null);
         return this.save(normalized);
     },
 
@@ -115,6 +135,16 @@ export const SoftphonePreferences = {
             noiseSuppression: toBoolean(nextSettings.noiseSuppression, normalized.audio.noiseSuppression),
             autoGainControl: toBoolean(nextSettings.autoGainControl, normalized.audio.autoGainControl),
         };
+        return this.save(normalized);
+    },
+
+    getDiagnosticsEnabled(preferences = null) {
+        return normalizePreferences(preferences).diagnostics.enabled;
+    },
+
+    setDiagnosticsEnabled(enabled, preferences = null) {
+        const normalized = normalizePreferences(preferences);
+        normalized.diagnostics.enabled = toBoolean(enabled, normalized.diagnostics.enabled);
         return this.save(normalized);
     },
 

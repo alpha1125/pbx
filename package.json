@@ -1,0 +1,11 @@
+{
+  "name": "pbx",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  },
+  "scripts": {
+    "test:playwright": "playwright test"
+  }
+}

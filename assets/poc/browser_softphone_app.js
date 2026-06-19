@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { TelnyxRTCContext, TelnyxRTCProvider, useCallbacks, useNotification } from '@telnyx/react-client';
 import SoftphonePreferences from './softphone_preferences.js';
+import BrowserSoftphoneSettingsPanel from './browser_softphone_settings.js';
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 const E164_REGEX = /^\+[1-9]\d{7,19}$/;
@@ -45,6 +46,54 @@ function stopMediaStream(stream) {
     }
 
     stream.getTracks().forEach((track) => track.stop());
+}
+
+function setStreamMuted(stream, muted) {
+    if (!stream || 'function' !== typeof stream.getAudioTracks) {
+        return;
+    }
+
+    stream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+    });
+}
+
+function useMediaQuery(query) {
+    const [matches, setMatches] = useState(() => {
+        if ('undefined' === typeof window || 'function' !== typeof window.matchMedia) {
+            return false;
+        }
+
+        return window.matchMedia(query).matches;
+    });
+
+    useEffect(() => {
+        if ('undefined' === typeof window || 'function' !== typeof window.matchMedia) {
+            return undefined;
+        }
+
+        const mediaQuery = window.matchMedia(query);
+        const handleChange = () => {
+            setMatches(mediaQuery.matches);
+        };
+
+        handleChange();
+        if ('function' === typeof mediaQuery.addEventListener) {
+            mediaQuery.addEventListener('change', handleChange);
+
+            return () => {
+                mediaQuery.removeEventListener('change', handleChange);
+            };
+        }
+
+        mediaQuery.addListener(handleChange);
+
+        return () => {
+            mediaQuery.removeListener(handleChange);
+        };
+    }, [query]);
+
+    return matches;
 }
 
 function getRequestedAudioConstraints(microphoneId, audioSettings) {
@@ -273,6 +322,8 @@ function BrowserSoftphoneSession({
     onConnectionStateChange,
     ringbackController,
     localStream,
+    muted,
+    onToggleMute,
     selectedSpeakerId,
     speakerRoutingSupported,
     speakerVolume,
@@ -288,6 +339,10 @@ function BrowserSoftphoneSession({
     useEffect(() => {
         ringbackRef.current = ringbackController ?? ringbackRef.current ?? createRingbackController();
     }, [ringbackController]);
+
+    useEffect(() => {
+        setStreamMuted(localStream, muted);
+    }, [localStream, muted]);
 
     useEffect(() => {
         const audio = remoteAudioRef.current;
@@ -352,7 +407,7 @@ function BrowserSoftphoneSession({
                     onStatusChange(message);
                     onConnectionStateChange('Call failed');
                     onLog('newCall failed.', { message });
-                    onSessionEnd();
+                    onSessionEnd({ showSummary: true });
                 }
             })();
         },
@@ -405,7 +460,7 @@ function BrowserSoftphoneSession({
             onStatusChange('Call ended.');
             onConnectionStateChange('Disconnected');
             ringbackRef.current?.stop();
-            onSessionEnd();
+            onSessionEnd({ showSummary: true });
         }
     }, [localStream, notification, onConnectionStateChange, onLog, onSessionEnd, onStatusChange]);
 
@@ -456,7 +511,7 @@ function BrowserSoftphoneSession({
         }
 
         ringbackRef.current?.stop();
-        onSessionEnd();
+        onSessionEnd({ showSummary: true });
     };
 
     return React.createElement(
@@ -469,12 +524,34 @@ function BrowserSoftphoneSession({
                 React.createElement('div', { className: 'small text-secondary' }, 'Connection State'),
                 React.createElement('div', { className: 'fw-semibold' }, 'Ready'),
             ),
-            React.createElement('button', {
-                type: 'button',
-                className: 'btn btn-outline-danger',
-                disabled: !activeCall,
-                onClick: hangup,
-            }, 'Hangup'),
+            React.createElement(
+                'div',
+                { className: 'd-flex flex-wrap justify-content-end gap-2' },
+                React.createElement('button', {
+                    type: 'button',
+                    className: muted ? 'btn btn-danger' : 'btn btn-outline-secondary',
+                    disabled: !activeCall,
+                    onClick: onToggleMute,
+                    title: 'Keyboard shortcut reserved for a later phase.',
+                }, muted ? 'Unmute' : 'Mute'),
+                React.createElement('button', {
+                    type: 'button',
+                    className: 'btn btn-outline-danger',
+                    disabled: !activeCall,
+                    onClick: hangup,
+                }, 'Hangup'),
+            ),
+        ),
+        React.createElement(
+            'div',
+            { className: 'mb-3' },
+            React.createElement(
+                'span',
+                {
+                    className: muted ? 'badge text-bg-danger' : 'badge text-bg-success',
+                },
+                muted ? 'Muted 🔴' : 'Live 🟢',
+            ),
         ),
         React.createElement('div', { className: 'mb-3' },
             React.createElement('div', { className: 'small text-secondary mb-1' }, 'Call State'),
@@ -525,9 +602,18 @@ export default function BrowserSoftphoneApp({
     const [audioStatus, setAudioStatus] = useState('Loading audio devices...');
     const [audioDiagnostics, setAudioDiagnostics] = useState(null);
     const [localStream, setLocalStream] = useState(null);
+    const [muted, setMuted] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [callSessionId, setCallSessionId] = useState(null);
+    const [transcriptTopic, setTranscriptTopic] = useState(null);
+    const [transcriptStreamUrl, setTranscriptStreamUrl] = useState(null);
+    const [transcriptStatus, setTranscriptStatus] = useState('Transcript stream idle.');
+    const [transcriptSegments, setTranscriptSegments] = useState([]);
+    const [postCallSummary, setPostCallSummary] = useState(null);
     const ringbackControllerRef = useRef(null);
     const speakerTestAudioRef = useRef(null);
     const logOutputRef = useRef(null);
+    const transcriptSourceRef = useRef(null);
     const preferencesRef = useRef(preferences);
 
     if (!ringbackControllerRef.current) {
@@ -535,6 +621,7 @@ export default function BrowserSoftphoneApp({
     }
 
     const speakerRoutingSupported = supportsSpeakerSelection();
+    const isMobileLayout = useMediaQuery('(max-width: 991.98px)');
 
     useEffect(() => {
         preferencesRef.current = preferences;
@@ -563,16 +650,26 @@ export default function BrowserSoftphoneApp({
         });
     };
 
-    const resetSession = () => {
+    const resetSession = (options = {}) => {
+        const shouldShowSummary = true === options?.showSummary;
+        transcriptSourceRef.current?.close?.();
+        transcriptSourceRef.current = null;
+        setPostCallSummary(shouldShowSummary ? buildMockPostCallSummary(callSessionId, destinationNumber) : null);
         setCredential(null);
         setDialRequest(null);
         setBusy(false);
+        setMuted(false);
         setConnectionState('Disconnected');
         setLocalStream((currentStream) => {
             stopMediaStream(currentStream);
             return null;
         });
         setAudioDiagnostics(null);
+        setCallSessionId(null);
+        setTranscriptTopic(null);
+        setTranscriptStreamUrl(null);
+        setTranscriptStatus('Transcript stream idle.');
+        setTranscriptSegments([]);
         ringbackControllerRef.current?.stop();
     };
 
@@ -588,8 +685,340 @@ export default function BrowserSoftphoneApp({
                 effectiveSpeakerId: '',
                 preferredMicrophoneId: '',
                 preferredSpeakerId: '',
-            };
+    };
+}
+
+function normalizeTranscriptSegment(segment) {
+    if (!segment || 'object' !== typeof segment) {
+        return null;
+    }
+
+    const id = Number.parseInt(String(segment.id ?? segment.sequence ?? ''), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        return null;
+    }
+
+    const text = 'string' === typeof segment.text ? segment.text.trim() : '';
+    if (!text) {
+        return null;
+    }
+
+    return {
+        id,
+        sequence: Number.isFinite(Number.parseInt(String(segment.sequence ?? id), 10)) ? Number.parseInt(String(segment.sequence ?? id), 10) : id,
+        speaker: normalizeTranscriptSpeaker(segment.speaker),
+        text,
+        occurredAt: 'string' === typeof segment.occurredAt ? segment.occurredAt : null,
+        displayTime: 'string' === typeof segment.displayTime && segment.displayTime.trim() ? segment.displayTime.trim() : null,
+        isFinal: true === segment.isFinal,
+        sourceEventId: 'string' === typeof segment.sourceEventId && segment.sourceEventId.trim() ? segment.sourceEventId.trim() : null,
+        fingerprint: 'string' === typeof segment.fingerprint && segment.fingerprint.trim() ? segment.fingerprint.trim() : null,
+    };
+}
+
+function transcriptSegmentKey(segment) {
+    if (!segment) {
+        return null;
+    }
+
+    return transcriptSegmentMergeKey(segment);
+}
+
+function transcriptSegmentMergeKey(segment) {
+    if (!segment) {
+        return null;
+    }
+
+    return segment.sourceEventId ?? segment.fingerprint ?? `segment:${segment.id}`;
+}
+
+function normalizeTranscriptSpeaker(speaker) {
+    const normalized = 'string' === typeof speaker ? speaker.trim().toLowerCase() : '';
+
+    return ['csr', 'agent', 'operator', 'representative'].includes(normalized) ? 'csr' : 'customer';
+}
+
+function transcriptSideForSpeaker(speaker) {
+    return 'csr' === speaker ? 'right' : 'left';
+}
+
+function transcriptBubbleTone(side) {
+    return 'right' === side ? 'primary' : 'secondary';
+}
+
+function transcriptSpeakerLabel(speaker) {
+    return 'csr' === speaker ? 'CSR' : 'Customer';
+}
+
+function formatTranscriptTime(segment) {
+    if (segment?.displayTime) {
+        return segment.displayTime;
+    }
+
+    if (!segment?.occurredAt) {
+        return '';
+    }
+
+    const occurredAt = new Date(segment.occurredAt);
+    if (Number.isNaN(occurredAt.getTime())) {
+        return segment.occurredAt;
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(occurredAt);
+}
+
+function mergeTranscriptSegments(currentSegments, segment) {
+    const normalizedSegment = normalizeTranscriptSegment(segment);
+    if (!normalizedSegment) {
+        return currentSegments;
+    }
+
+    const key = transcriptSegmentMergeKey(normalizedSegment);
+    const nextSegments = [...currentSegments];
+    const matchedIndex = nextSegments.findIndex((currentSegment) => transcriptSegmentMergeKey(currentSegment) === key);
+
+    if (-1 === matchedIndex) {
+        return [...nextSegments, normalizedSegment].sort((left, right) => {
+            const sequenceDelta = (left.sequence ?? left.id ?? 0) - (right.sequence ?? right.id ?? 0);
+
+            return 0 !== sequenceDelta ? sequenceDelta : left.id - right.id;
+        });
+    }
+
+    const existingSegment = nextSegments[matchedIndex];
+    if (existingSegment.fingerprint === normalizedSegment.fingerprint) {
+        return currentSegments;
+    }
+
+    if (existingSegment.isFinal && !normalizedSegment.isFinal) {
+        return currentSegments;
+    }
+
+    nextSegments[matchedIndex] = {
+        ...normalizedSegment,
+        id: existingSegment.id,
+        sequence: existingSegment.sequence,
+    };
+
+    return nextSegments.sort((left, right) => {
+        const sequenceDelta = (left.sequence ?? left.id ?? 0) - (right.sequence ?? right.id ?? 0);
+
+        return 0 !== sequenceDelta ? sequenceDelta : left.id - right.id;
+    });
+}
+
+function TranscriptFeedPanel({
+    status,
+    topic,
+    segments,
+    onClear,
+}) {
+    const transcriptScrollRef = useRef(null);
+
+    useEffect(() => {
+        const element = transcriptScrollRef.current;
+        if (element) {
+            element.scrollTop = element.scrollHeight;
         }
+    }, [segments]);
+
+    return React.createElement(
+        'div',
+        {
+            className: 'border rounded-4 p-3 mt-3 shadow-sm',
+            style: {
+                background: 'linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%)',
+            },
+        },
+        React.createElement(
+            'div',
+            { className: 'd-flex justify-content-between align-items-start gap-2 mb-3' },
+            React.createElement(
+                'div',
+                null,
+                React.createElement('div', { className: 'small text-secondary text-uppercase fw-semibold mb-1' }, 'Live Transcript'),
+                React.createElement('div', { className: 'fw-semibold text-break' }, topic || 'Waiting for call session'),
+                React.createElement('div', { className: 'small text-secondary mt-1' }, status),
+            ),
+            React.createElement('button', {
+                type: 'button',
+                className: 'btn btn-outline-secondary btn-sm',
+                onClick: onClear,
+                disabled: 0 === segments.length,
+            }, 'Clear'),
+        ),
+        React.createElement(
+            'div',
+            {
+                ref: transcriptScrollRef,
+                'data-transcript-scroll-region': 'true',
+                className: 'd-flex flex-column gap-3 p-2',
+                style: {
+                    maxHeight: '24rem',
+                    minHeight: '12rem',
+                    overflowY: 'auto',
+                    scrollBehavior: 'smooth',
+                },
+            },
+            0 === segments.length
+                ? React.createElement(
+                    'div',
+                    {
+                        className: 'border rounded-4 bg-white bg-opacity-75 text-secondary text-center py-5 px-3',
+                        style: { borderStyle: 'dashed' },
+                    },
+                    React.createElement('div', { className: 'fw-semibold mb-1' }, 'No transcript segments yet.'),
+                    React.createElement('div', { className: 'small' }, 'Transcript bubbles will appear here as segments arrive.'),
+                )
+                : React.createElement(
+                    'div',
+                    { className: 'd-flex flex-column gap-3' },
+                    segments.map((segment) => React.createElement(
+                        'article',
+                        {
+                            key: transcriptSegmentKey(segment),
+                            'data-transcript-segment-id': String(segment.id),
+                            'data-transcript-merge-key': transcriptSegmentMergeKey(segment),
+                            'data-transcript-side': transcriptSideForSpeaker(segment.speaker),
+                            'data-transcript-speaker': segment.speaker,
+                            'data-transcript-final': segment.isFinal ? 'true' : 'false',
+                            className: `d-flex ${'right' === transcriptSideForSpeaker(segment.speaker) ? 'justify-content-end' : 'justify-content-start'}`,
+                        },
+                        React.createElement(
+                            'div',
+                            {
+                                className: `rounded-4 px-3 py-2 shadow-sm ${'right' === transcriptSideForSpeaker(segment.speaker) ? 'bg-primary text-white' : 'bg-white border border-1 border-primary-subtle'}`,
+                                style: {
+                                    maxWidth: '82%',
+                                    opacity: segment.isFinal ? 1 : 0.78,
+                                    fontStyle: segment.isFinal ? 'normal' : 'italic',
+                                },
+                                'data-transcript-bubble': 'true',
+                                'data-bubble-tone': transcriptBubbleTone(transcriptSideForSpeaker(segment.speaker)),
+                            },
+                            React.createElement(
+                                'div',
+                                { className: `d-flex justify-content-between gap-3 small mb-1 ${'right' === transcriptSideForSpeaker(segment.speaker) ? 'text-white-50' : 'text-secondary'}` },
+                                React.createElement('div', { className: 'fw-semibold text-uppercase' }, transcriptSpeakerLabel(segment.speaker)),
+                                React.createElement('time', {
+                                    dateTime: segment.occurredAt ?? undefined,
+                                    'data-transcript-timestamp': 'true',
+                                }, formatTranscriptTime(segment)),
+                            ),
+                            React.createElement('div', { className: 'lh-base' }, segment.text),
+                            !segment.isFinal
+                                ? React.createElement(
+                                    'div',
+                                    { className: `small mt-1 ${'right' === transcriptSideForSpeaker(segment.speaker) ? 'text-white-50' : 'text-secondary'}` },
+                                    'Typing...',
+                                )
+                                : null,
+                        ),
+                    )),
+                ),
+        ),
+    );
+}
+
+function PostCallSummaryPanel({ summary }) {
+    if (!summary) {
+        return null;
+    }
+
+    return React.createElement(
+        'div',
+        {
+            className: 'border rounded-4 p-3 mt-3 shadow-sm',
+            'data-post-call-summary': 'true',
+            style: {
+                background: 'linear-gradient(180deg, #fffaf2 0%, #fff1d8 100%)',
+            },
+        },
+        React.createElement('div', { className: 'small text-uppercase fw-semibold text-secondary mb-1' }, 'Post Call'),
+        React.createElement('div', { className: 'h5 mb-2' }, 'Call Summary'),
+        React.createElement('div', { className: 'text-secondary mb-3' }, summary.summary),
+        React.createElement(
+            'div',
+            { className: 'row g-3' },
+            React.createElement(
+                'div',
+                { className: 'col-12 col-md-6' },
+                React.createElement('div', { className: 'fw-semibold mb-2' }, 'Customer concerns'),
+                React.createElement(
+                    'ul',
+                    { className: 'list-unstyled mb-0 d-grid gap-2' },
+                    summary.customerConcerns.map((concern) => React.createElement(
+                        'li',
+                        {
+                            key: concern,
+                            className: 'border rounded-3 bg-white px-3 py-2',
+                        },
+                        concern,
+                    )),
+                ),
+            ),
+            React.createElement(
+                'div',
+                { className: 'col-12 col-md-6' },
+                React.createElement('div', { className: 'fw-semibold mb-2' }, 'Action items'),
+                React.createElement(
+                    'ul',
+                    { className: 'list-unstyled mb-0 d-grid gap-2' },
+                    summary.actionItems.map((actionItem) => React.createElement(
+                        'li',
+                        {
+                            key: actionItem,
+                            className: 'border rounded-3 bg-white px-3 py-2',
+                        },
+                        actionItem,
+                    )),
+                ),
+            ),
+        ),
+        React.createElement(
+            'div',
+            { className: 'mt-3' },
+            React.createElement('div', { className: 'fw-semibold mb-2' }, 'Keywords'),
+            React.createElement(
+                'div',
+                { className: 'd-flex flex-wrap gap-2' },
+                summary.keywords.map((keyword) => React.createElement(
+                    'span',
+                    {
+                        key: keyword,
+                        className: 'badge text-bg-dark',
+                    },
+                    keyword,
+                )),
+            ),
+        ),
+    );
+}
+
+function buildMockPostCallSummary(callSessionId, destinationNumber) {
+    return {
+        callSessionId,
+        destinationNumber,
+        summary: 'The customer reported an intermittent service issue and asked for a follow-up once the line is stable.',
+        customerConcerns: [
+            'Intermittent call quality and dropped audio',
+            'Needs confirmation that service is restored',
+        ],
+        actionItems: [
+            'Verify service status with the customer',
+            'Send a follow-up update after the next monitoring window',
+        ],
+        keywords: [
+            'service quality',
+            'follow-up',
+            'monitoring',
+            'callback',
+        ],
+    };
+}
 
         let permissionStream = null;
         try {
@@ -699,6 +1128,60 @@ export default function BrowserSoftphoneApp({
         };
     }, []);
 
+    useEffect(() => {
+        if (!transcriptStreamUrl || 'function' !== typeof window.EventSource) {
+            if (!transcriptStreamUrl) {
+                setTranscriptStatus('Transcript stream idle.');
+            } else {
+                setTranscriptStatus('Transcript stream is not supported in this browser.');
+            }
+
+            return undefined;
+        }
+
+        const eventSource = new EventSource(transcriptStreamUrl);
+        transcriptSourceRef.current = eventSource;
+        setTranscriptStatus(`Connecting transcript stream for ${callSessionId ?? 'call session'}...`);
+
+        const handleTranscriptSegment = (event) => {
+            try {
+                const payload = JSON.parse(event.data);
+                const segment = payload?.segment ?? payload;
+                appendTranscriptSegment(segment);
+                setTranscriptStatus(`Transcript stream connected to ${payload?.topic ?? transcriptStreamUrl}.`);
+            } catch (error) {
+                setTranscriptStatus('Transcript stream received an invalid payload.');
+            }
+        };
+
+        const handleReady = (event) => {
+            try {
+                const payload = JSON.parse(event.data);
+                setTranscriptStatus(`Transcript stream connected to ${payload?.topic ?? transcriptStreamUrl}.`);
+            } catch (error) {
+                setTranscriptStatus(`Transcript stream connected to ${transcriptStreamUrl}.`);
+            }
+        };
+
+        const handleHeartbeat = () => {
+            if (transcriptStreamUrl) {
+                setTranscriptStatus(`Listening on ${transcriptStreamUrl}.`);
+            }
+        };
+
+        eventSource.addEventListener('transcript.segment', handleTranscriptSegment);
+        eventSource.addEventListener('message', handleTranscriptSegment);
+        eventSource.addEventListener('ready', handleReady);
+        eventSource.addEventListener('heartbeat', handleHeartbeat);
+
+        return () => {
+            eventSource.close();
+            if (transcriptSourceRef.current === eventSource) {
+                transcriptSourceRef.current = null;
+            }
+        };
+    }, [callSessionId, transcriptStreamUrl]);
+
     const acquireMicrophoneStream = async (audioConstraints) => {
         if (!navigator.mediaDevices?.getUserMedia) {
             throw new Error('Microphone access is not available in this browser.');
@@ -751,6 +1234,10 @@ export default function BrowserSoftphoneApp({
         return payload;
     };
 
+    const appendTranscriptSegment = (segment) => {
+        setTranscriptSegments((currentSegments) => mergeTranscriptSegments(currentSegments, segment));
+    };
+
     const startCall = async () => {
         if (busy) {
             return;
@@ -763,6 +1250,7 @@ export default function BrowserSoftphoneApp({
         }
 
         setBusy(true);
+        setPostCallSummary(null);
         setStatus('Requesting microphone permission...');
         setAudioStatus('Refreshing audio devices...');
         appendLog('Starting browser softphone session.', { destinationNumber: normalizedDestination });
@@ -795,6 +1283,11 @@ export default function BrowserSoftphoneApp({
 
             setStatus('Connecting to Telnyx...');
             setConnectionState('Connecting');
+            setCallSessionId(payload.callSessionId ?? null);
+            setTranscriptTopic(payload.transcriptTopic ?? (payload.callSessionId ? `/poc/browser-softphone/${payload.callSessionId}/transcript` : null));
+            setTranscriptStreamUrl(payload.transcriptStreamUrl ?? (payload.callSessionId ? `/api/poc/browser-softphone/${payload.callSessionId}/transcript/stream` : null));
+            setTranscriptStatus(payload.transcriptTopic ? `Transcript topic: ${payload.transcriptTopic}` : 'Transcript stream ready.');
+            setTranscriptSegments([]);
             setDialRequest({
                 destinationNumber: payload.destinationNumber ?? normalizedDestination,
                 callerNumber: payload.callerNumber ?? defaultCallerNumber,
@@ -807,10 +1300,22 @@ export default function BrowserSoftphoneApp({
             setConnectionState('Connection failed');
             appendLog('Browser call failed to start.', { message });
             ringbackControllerRef.current?.stop();
-            resetSession();
+            resetSession({ showSummary: false });
         } finally {
             setBusy(false);
         }
+    };
+
+    const toggleMute = () => {
+        setMuted((currentMuted) => !currentMuted);
+    };
+
+    const toggleSettings = () => {
+        setSettingsOpen((current) => !current);
+    };
+
+    const closeSettings = () => {
+        setSettingsOpen(false);
     };
 
     const refreshDevices = async () => {
@@ -849,6 +1354,11 @@ export default function BrowserSoftphoneApp({
             ...SoftphonePreferences.getAudioSettings(currentPreferences),
             [name]: checked,
         }, currentPreferences));
+    };
+
+    const handleDiagnosticsToggle = (event) => {
+        const { checked } = event.currentTarget;
+        persistPreferences((currentPreferences) => SoftphonePreferences.setDiagnosticsEnabled(checked, currentPreferences));
     };
 
     const playSpeakerTestTone = async () => {
@@ -913,6 +1423,7 @@ export default function BrowserSoftphoneApp({
     const selectedMicrophonePreference = SoftphonePreferences.getMicrophone(preferences);
     const selectedSpeakerPreference = SoftphonePreferences.getSpeaker(preferences);
     const audioSettingsPreference = SoftphonePreferences.getAudioSettings(preferences);
+    const diagnosticsEnabled = SoftphonePreferences.getDiagnosticsEnabled(preferences);
     const speakerVolume = SoftphonePreferences.getSpeakerVolume(preferences);
     const effectiveMicrophoneId = findDeviceById(microphones, selectedMicrophonePreference)?.deviceId
         ?? microphones[0]?.deviceId
@@ -960,14 +1471,16 @@ export default function BrowserSoftphoneApp({
                 selectedSpeakerId: effectiveSpeakerId,
                 speakerRoutingSupported,
                 speakerVolume,
+                muted,
                 onSessionEnd: resetSession,
                 onLog: appendLog,
                 onStatusChange: setStatus,
                 onConnectionStateChange: setConnectionState,
                 onAudioWarning: setAudioStatus,
+                onToggleMute: toggleMute,
             }),
         );
-    }, [credential, dialRequest, effectiveSpeakerId, localStream, speakerRoutingSupported, speakerVolume]);
+    }, [credential, dialRequest, effectiveSpeakerId, localStream, muted, speakerRoutingSupported, speakerVolume]);
 
     return React.createElement(
         'div',
@@ -1015,6 +1528,12 @@ export default function BrowserSoftphoneApp({
                     onClick: resetSession,
                     disabled: busy && !credential,
                 }, 'Reset'),
+                React.createElement('button', {
+                    type: 'button',
+                    className: settingsOpen ? 'btn btn-dark btn-lg' : 'btn btn-outline-dark btn-lg',
+                    onClick: toggleSettings,
+                    'aria-expanded': settingsOpen,
+                }, 'Settings ⚙'),
             ),
         ),
         React.createElement(
@@ -1025,163 +1544,36 @@ export default function BrowserSoftphoneApp({
                 { className: 'col-12 col-lg-5' },
                 React.createElement(
                     'div',
-                    { className: 'border rounded-4 p-3 bg-body-tertiary h-100' },
+                    { className: 'border rounded-4 p-3 bg-body-tertiary h-100 position-relative' },
                     React.createElement('div', { className: 'small text-secondary mb-1' }, 'Status'),
                     React.createElement('div', { className: 'alert alert-info mb-3' }, status),
-                    React.createElement(
-                        'div',
-                        { className: 'border rounded-4 p-3 bg-body mb-3' },
-                        React.createElement(
-                            'div',
-                            { className: 'd-flex justify-content-between align-items-center gap-2 mb-2' },
-                            React.createElement('div', { className: 'fw-semibold' }, 'Audio Devices'),
-                            React.createElement('button', {
-                                type: 'button',
-                                className: 'btn btn-outline-secondary btn-sm',
-                                onClick: refreshDevices,
-                                disabled: busy,
-                            }, 'Refresh Devices'),
-                        ),
-                        React.createElement('div', { className: `small mb-3 ${audioStatusClass}` }, audioStatus),
-                        React.createElement('div', { className: 'small text-secondary mb-1' }, 'Microphone'),
-                        React.createElement(
-                            'select',
-                            {
-                                className: 'form-select form-select-sm mb-2',
-                                value: effectiveMicrophoneId,
-                                onChange: handleMicChange,
-                                disabled: busy || 0 === microphones.length,
-                            },
-                            0 === microphones.length
-                                ? React.createElement('option', { value: '' }, 'No microphones available')
-                                : [
-                                    React.createElement('option', { key: 'mic-default', value: '' }, 'Default microphone'),
-                                    ...microphones.map((device) => React.createElement(
-                                        'option',
-                                        {
-                                            key: device.deviceId,
-                                            value: device.deviceId,
-                                        },
-                                        device.label,
-                                    )),
-                                    ],
-                        ),
-                        React.createElement('div', { className: 'small text-secondary mb-2' }, selectedMicLabel),
-                        React.createElement('div', { className: 'small text-secondary mb-1' }, 'Speaker'),
-                        React.createElement(
-                            'select',
-                            {
-                                className: 'form-select form-select-sm mb-2',
-                                value: effectiveSpeakerId,
-                                onChange: handleSpeakerChange,
-                                disabled: busy || !speakerRoutingSupported || 0 === speakers.length,
-                            },
-                            !speakerRoutingSupported
-                                ? React.createElement('option', { value: '' }, 'Speaker routing unsupported')
-                                : 0 === speakers.length
-                                    ? React.createElement('option', { value: '' }, 'No speakers available')
-                                    : [
-                                        React.createElement('option', { key: 'speaker-default', value: '' }, 'Default speaker'),
-                                        ...speakers.map((device) => React.createElement(
-                                            'option',
-                                            {
-                                                key: device.deviceId,
-                                                value: device.deviceId,
-                                            },
-                                            device.label,
-                                        )),
-                                    ],
-                        ),
-                        React.createElement('div', { className: 'small text-secondary mb-1' }, `Speaker Volume ${Math.round((Number(speakerVolume) || 0) * 100)}%`),
-                        React.createElement('input', {
-                            type: 'range',
-                            className: 'form-range mb-2',
-                            min: '0',
-                            max: '1',
-                            step: '0.05',
-                            value: String(speakerVolume),
-                            onChange: handleSpeakerVolumeChange,
-                        }),
-                        React.createElement(
-                            'div',
-                            { className: 'border rounded-3 p-3 mb-2 bg-light' },
-                            React.createElement('div', { className: 'small text-secondary mb-2' }, 'Audio Processing'),
-                            React.createElement(
-                                'div',
-                                { className: 'form-check mb-2' },
-                                React.createElement('input', {
-                                    id: 'echo-cancellation-toggle',
-                                    type: 'checkbox',
-                                    className: 'form-check-input',
-                                    name: 'echoCancellation',
-                                    checked: audioSettingsPreference.echoCancellation,
-                                    onChange: handleAudioSettingChange,
-                                    disabled: busy,
-                                }),
-                                React.createElement('label', { className: 'form-check-label', htmlFor: 'echo-cancellation-toggle' }, 'Echo cancellation'),
-                            ),
-                            React.createElement(
-                                'div',
-                                { className: 'form-check mb-2' },
-                                React.createElement('input', {
-                                    id: 'noise-suppression-toggle',
-                                    type: 'checkbox',
-                                    className: 'form-check-input',
-                                    name: 'noiseSuppression',
-                                    checked: audioSettingsPreference.noiseSuppression,
-                                    onChange: handleAudioSettingChange,
-                                    disabled: busy,
-                                }),
-                                React.createElement('label', { className: 'form-check-label', htmlFor: 'noise-suppression-toggle' }, 'Noise suppression'),
-                            ),
-                            React.createElement(
-                                'div',
-                                { className: 'form-check' },
-                                React.createElement('input', {
-                                    id: 'auto-gain-toggle',
-                                    type: 'checkbox',
-                                    className: 'form-check-input',
-                                    name: 'autoGainControl',
-                                    checked: audioSettingsPreference.autoGainControl,
-                                    onChange: handleAudioSettingChange,
-                                    disabled: busy,
-                                }),
-                                React.createElement('label', { className: 'form-check-label', htmlFor: 'auto-gain-toggle' }, 'Auto gain control'),
-                            ),
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'border rounded-3 p-3 mb-2 bg-dark text-light' },
-                            React.createElement('div', { className: 'small text-info mb-2' }, 'Applied Audio Track Settings'),
-                            appliedAudioSummary
-                                ? React.createElement(
-                                    'pre',
-                                    { className: 'mb-0 text-light', style: { whiteSpace: 'pre-wrap' } },
-                                    JSON.stringify(appliedAudioSummary, null, 2),
-                                )
-                                : React.createElement('div', { className: 'text-secondary' }, 'No call audio stream has been captured yet.'),
-                            appliedAudioSummary?.warnings?.length
-                                ? React.createElement(
-                                    'div',
-                                    { className: 'alert alert-warning mt-2 mb-0 py-2' },
-                                    appliedAudioSummary.warnings.join(' '),
-                                )
-                                : null,
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'd-flex flex-wrap gap-2' },
-                            React.createElement('button', {
-                                type: 'button',
-                                className: 'btn btn-outline-secondary btn-sm',
-                                onClick: playSpeakerTestTone,
-                            }, 'Test Speaker'),
-                            React.createElement('div', { className: 'small text-secondary align-self-center' }, selectedSpeakerLabel),
-                        ),
-                        !speakerRoutingSupported
-                            ? React.createElement('div', { className: 'small text-secondary mt-2' }, 'Speaker selection is not supported by this browser.')
-                            : null,
-                    ),
+                    React.createElement(BrowserSoftphoneSettingsPanel, {
+                        isMobile: isMobileLayout,
+                        isOpen: settingsOpen,
+                        busy,
+                        audioStatus,
+                        audioStatusClass,
+                        microphones,
+                        speakers,
+                        speakerRoutingSupported,
+                        effectiveMicrophoneId,
+                        effectiveSpeakerId,
+                        selectedMicLabel,
+                        selectedSpeakerLabel,
+                        speakerVolume,
+                        diagnosticsEnabled,
+                        audioSettingsPreference,
+                        appliedAudioSummary,
+                        onToggleOpen: toggleSettings,
+                        onClose: closeSettings,
+                        onRefreshDevices: refreshDevices,
+                        onMicChange: handleMicChange,
+                        onSpeakerChange: handleSpeakerChange,
+                        onSpeakerVolumeChange: handleSpeakerVolumeChange,
+                        onAudioSettingChange: handleAudioSettingChange,
+                        onDiagnosticsToggle: handleDiagnosticsToggle,
+                        onTestSpeaker: playSpeakerTestTone,
+                    }),
                     React.createElement('div', { className: 'small text-secondary mb-1' }, 'Connection State'),
                     React.createElement('div', { className: 'fw-semibold mb-3' }, connectionState),
                     React.createElement('div', { className: 'small text-secondary mb-1' }, 'Default Destination'),
@@ -1201,13 +1593,26 @@ export default function BrowserSoftphoneApp({
             React.createElement(
                 'div',
                 { className: 'col-12 col-lg-7' },
-                credential && dialRequest
-                    ? memoizedSession
-                    : React.createElement(
-                        'div',
-                        { className: 'border rounded-4 p-3 bg-body-tertiary h-100' },
-                        React.createElement('div', { className: 'text-secondary' }, 'Press Browser Call to request a token and start the Telnyx React client.'),
-                    ),
+                React.createElement(
+                    'div',
+                    { className: 'border rounded-4 p-3 bg-body-tertiary h-100' },
+                    credential && dialRequest
+                        ? memoizedSession
+                        : React.createElement(
+                            'div',
+                            { className: 'text-secondary' },
+                            'Press Browser Call to request a token and start the Telnyx React client.',
+                        ),
+                    React.createElement(TranscriptFeedPanel, {
+                        status: transcriptStatus,
+                        topic: transcriptTopic,
+                        segments: transcriptSegments,
+                        onClear: () => setTranscriptSegments([]),
+                    }),
+                    React.createElement(PostCallSummaryPanel, {
+                        summary: postCallSummary,
+                    }),
+                ),
             ),
         ),
         React.createElement('audio', {

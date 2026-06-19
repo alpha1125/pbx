@@ -11,6 +11,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Uid\Uuid;
 
 final class BrowserSoftphoneController extends AbstractController
 {
@@ -66,11 +67,18 @@ final class BrowserSoftphoneController extends AbstractController
             return new JsonResponse(['ok' => false, 'error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
         }
 
+        $callSessionId = Uuid::v7()->toRfc4122();
+        $transcriptTopic = sprintf('/poc/browser-softphone/%s/transcript', $callSessionId);
+        $transcriptStreamUrl = sprintf('/api/poc/browser-softphone/%s/transcript/stream', $callSessionId);
+
         return new JsonResponse([
             'ok' => true,
             'token' => $token,
             'destinationNumber' => $destinationNumber,
             'callerNumber' => $this->fromNumber,
+            'callSessionId' => $callSessionId,
+            'transcriptTopic' => $transcriptTopic,
+            'transcriptStreamUrl' => $transcriptStreamUrl,
         ]);
     }
 
