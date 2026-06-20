@@ -151,11 +151,24 @@ final class CallCaptureControlService
         $this->entityManager->flush();
 
         try {
+            $this->logger->info('Requesting Telnyx recording start.', [
+                'callSessionId' => $session->getId(),
+                'callLegId' => $leg?->getId(),
+                'callControlId' => $callControlId,
+                'capturePolicy' => $policy->toArray(),
+                'commandId' => $this->commandId($session, $commandPrefix, 'record-start'),
+            ]);
             $response = $this->callControl->startRecording($callControlId, [
                 'format' => $this->recordingFormat,
                 'channels' => $this->recordingChannels,
                 'recording_track' => $this->transcriptionConfiguration->getTrack(),
                 'command_id' => $this->commandId($session, $commandPrefix, 'record-start'),
+            ]);
+            $this->logger->info('Telnyx recording start returned.', [
+                'callSessionId' => $session->getId(),
+                'callLegId' => $leg?->getId(),
+                'callControlId' => $callControlId,
+                'response' => $response,
             ]);
             $action->setStatus('succeeded')->setResponsePayload($response);
             $session->setRecordingState(CallSession::RECORDING_STATE_ACTIVE)->touch();
@@ -279,9 +292,22 @@ final class CallCaptureControlService
         $this->entityManager->flush();
 
         try {
+            $this->logger->info('Requesting Telnyx transcription start.', [
+                'callSessionId' => $session->getId(),
+                'callLegId' => $leg?->getId(),
+                'callControlId' => $callControlId,
+                'capturePolicy' => $policy->toArray(),
+                'commandId' => $this->commandId($session, $commandPrefix, 'transcription-start'),
+            ]);
             $response = $this->callControl->startTranscription($callControlId, [
                 ...$this->transcriptionConfiguration->toTranscriptionStartPayload(),
                 'command_id' => $this->commandId($session, $commandPrefix, 'transcription-start'),
+            ]);
+            $this->logger->info('Telnyx transcription start returned.', [
+                'callSessionId' => $session->getId(),
+                'callLegId' => $leg?->getId(),
+                'callControlId' => $callControlId,
+                'response' => $response,
             ]);
             $job
                 ->setProviderStatus('transcription_started')

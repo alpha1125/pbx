@@ -176,6 +176,12 @@ Architecture:
 - Browser subscribe
 - Update UI
 
+Telnyx webhook target:
+
+- `https://pbx.firstfire.ca/api/telnyx/webhook`
+
+The POC transcript stream is keyed to the active Telnyx call control ID, so the browser panel only fills once Telnyx has delivered transcription webhooks for that call.
+
 Topic:
 
 - `/poc/browser-softphone/{callSessionId}/transcript`

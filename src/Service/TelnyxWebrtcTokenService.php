@@ -14,7 +14,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 class TelnyxWebrtcTokenService
 {
     private const string BASE_URL = 'https://api.telnyx.com/v2';
-    private const string CACHE_KEY_PREFIX = 'telnyx_webrtc_telephony_credential_id:';
+    private const string CACHE_KEY_PREFIX = 'telnyx_webrtc_telephony_credential_id.';
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,

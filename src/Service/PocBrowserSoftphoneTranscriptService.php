@@ -7,6 +7,7 @@ namespace App\Service;
 final class PocBrowserSoftphoneTranscriptService
 {
     private const STORAGE_PREFIX = 'pbx-browser-softphone-transcripts';
+    private const CALL_CONTROL_INDEX_FILE = 'call-control-index.json';
 
     private PocBrowserSoftphoneTranscriptMergeService $mergeService;
 
@@ -23,6 +24,24 @@ final class PocBrowserSoftphoneTranscriptService
     public function streamUrlForCallSession(string $callSessionId): string
     {
         return sprintf('/api/poc/browser-softphone/%s/transcript/stream', $this->normalizeCallSessionId($callSessionId));
+    }
+
+    public function registerCallControlId(string $callSessionId, string $callControlId): void
+    {
+        $normalizedCallSessionId = $this->normalizeCallSessionId($callSessionId);
+        $normalizedCallControlId = $this->normalizeCallControlId($callControlId);
+
+        $index = $this->readCallControlIndex();
+        $index[$normalizedCallControlId] = $normalizedCallSessionId;
+        $this->writeCallControlIndex($index);
+    }
+
+    public function resolveCallSessionIdForCallControlId(string $callControlId): ?string
+    {
+        $normalizedCallControlId = $this->normalizeCallControlId($callControlId);
+        $index = $this->readCallControlIndex();
+
+        return isset($index[$normalizedCallControlId]) ? $this->normalizeCallSessionId((string) $index[$normalizedCallControlId]) : null;
     }
 
     /**
@@ -205,9 +224,84 @@ final class PocBrowserSoftphoneTranscriptService
         }
     }
 
+    /**
+     * @return array<string, string>
+     */
+    private function readCallControlIndex(): array
+    {
+        $path = $this->callControlIndexPath();
+        if (!is_file($path)) {
+            return [];
+        }
+
+        try {
+            $raw = file_get_contents($path);
+            $decoded = json_decode(false !== $raw ? $raw : '', true, flags: JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $index = [];
+        foreach ($decoded as $callControlId => $callSessionId) {
+            if (!is_string($callControlId) || !is_string($callSessionId)) {
+                continue;
+            }
+
+            $trimmedCallControlId = trim($callControlId);
+            $trimmedCallSessionId = trim($callSessionId);
+            if ('' === $trimmedCallControlId || '' === $trimmedCallSessionId) {
+                continue;
+            }
+
+            $index[$trimmedCallControlId] = $trimmedCallSessionId;
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param array<string, string> $index
+     */
+    private function writeCallControlIndex(array $index): void
+    {
+        $path = $this->callControlIndexPath();
+        $directory = dirname($path);
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new \RuntimeException(sprintf('Unable to create transcript storage directory "%s".', $directory));
+        }
+
+        $handle = @fopen($path, 'c+');
+        if (false === $handle) {
+            throw new \RuntimeException(sprintf('Unable to open transcript storage file "%s".', $path));
+        }
+
+        try {
+            if (!flock($handle, LOCK_EX)) {
+                throw new \RuntimeException(sprintf('Unable to lock transcript storage file "%s".', $path));
+            }
+
+            rewind($handle);
+            fwrite($handle, json_encode($index, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
+            fflush($handle);
+            ftruncate($handle, ftell($handle));
+            flock($handle, LOCK_UN);
+        } finally {
+            fclose($handle);
+        }
+    }
+
     private function statePath(string $callSessionId): string
     {
         return sprintf('%s/%s/%s.json', sys_get_temp_dir(), self::STORAGE_PREFIX, $this->sanitizeCallSessionId($callSessionId));
+    }
+
+    private function callControlIndexPath(): string
+    {
+        return sprintf('%s/%s/%s', sys_get_temp_dir(), self::STORAGE_PREFIX, self::CALL_CONTROL_INDEX_FILE);
     }
 
     private function sanitizeCallSessionId(string $callSessionId): string
@@ -220,6 +314,16 @@ final class PocBrowserSoftphoneTranscriptService
         $normalized = trim($callSessionId);
         if ('' === $normalized) {
             throw new \InvalidArgumentException('callSessionId cannot be empty.');
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeCallControlId(string $callControlId): string
+    {
+        $normalized = trim($callControlId);
+        if ('' === $normalized) {
+            throw new \InvalidArgumentException('callControlId cannot be empty.');
         }
 
         return $normalized;

@@ -1,12 +1,17 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { TelnyxRTCContext, TelnyxRTCProvider, useCallbacks, useNotification } from '@telnyx/react-client';
+import { flushSync } from 'react-dom';
+import { TelnyxRTCContext, useCallbacks, useNotification } from '@telnyx/react-client';
+import { TelnyxRTC as ImportedTelnyxRTC } from '@telnyx/webrtc';
 import SoftphonePreferences from './softphone_preferences.js';
 import BrowserSoftphoneSettingsPanel from './browser_softphone_settings.js';
+import BrowserSoftphoneTranscriptPanel from './browser_softphone_transcript_panel.js';
+import BrowserSoftphonePostCallSummaryPanel, { buildMockPostCallSummary } from './browser_softphone_post_call_summary.js';
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 const E164_REGEX = /^\+[1-9]\d{7,19}$/;
 const RINGBACK_ON_MS = 2000;
 const RINGBACK_OFF_MS = 4000;
+const BROWSER_SOFTPHONE_APP_VERSION = 'v2';
 
 function normalizePhoneNumber(value) {
     if ('string' !== typeof value) {
@@ -19,6 +24,14 @@ function normalizePhoneNumber(value) {
 
 function supportsSpeakerSelection() {
     return 'undefined' !== typeof HTMLMediaElement && 'function' === typeof HTMLMediaElement.prototype.setSinkId;
+}
+
+function resolveTelnyxRTCClass() {
+    if ('function' === typeof globalThis.TelnyxRTC) {
+        return globalThis.TelnyxRTC;
+    }
+
+    return ImportedTelnyxRTC;
 }
 
 function mapAudioDevices(devices) {
@@ -298,6 +311,74 @@ function createRingbackController() {
     return controller;
 }
 
+function BrowserSoftphoneTelnyxProvider({
+    credential,
+    options,
+    children,
+}) {
+    const ClientClass = resolveTelnyxRTCClass();
+    const client = useMemo(() => {
+        if (!credential) {
+            return null;
+        }
+
+        try {
+            return new ClientClass({
+                login_token: '',
+                ...credential,
+                ...options,
+            });
+        } catch (error) {
+            return null;
+        }
+    }, [
+        ClientClass,
+        credential?.login_token,
+        credential?.login,
+        credential?.password,
+        JSON.stringify(options ?? {}),
+    ]);
+
+    useEffect(() => {
+        if (!client) {
+            return undefined;
+        }
+
+        const handleError = () => {
+            try {
+                client.disconnect?.();
+            } catch (error) {
+                // Ignore cleanup failures.
+            }
+        };
+
+        client.on?.('telnyx.error', handleError);
+        client.on?.('telnyx.socket.error', handleError);
+        client.connect?.();
+
+        return () => {
+            try {
+                client.off?.('telnyx.error', handleError);
+                client.off?.('telnyx.socket.error', handleError);
+            } catch (error) {
+                // Ignore listener cleanup issues.
+            }
+
+            try {
+                client.disconnect?.();
+            } catch (error) {
+                // Ignore disconnect cleanup failures.
+            }
+        };
+    }, [client]);
+
+    return React.createElement(
+        TelnyxRTCContext.Provider,
+        { value: client },
+        children,
+    );
+}
+
 function joinLogLine(message, data = null) {
     if (null === data) {
         return message;
@@ -337,6 +418,7 @@ function BrowserSoftphoneSession({
     const dialedRef = useRef(false);
     const ringbackRef = useRef(ringbackController ?? null);
     const remoteAudioRef = useRef(null);
+    const sessionEndedRef = useRef(false);
 
     useEffect(() => {
         ringbackRef.current = ringbackController ?? ringbackRef.current ?? createRingbackController();
@@ -399,9 +481,6 @@ function BrowserSoftphoneSession({
                     });
 
                     setActiveCall(call);
-                    if ('function' === typeof onCallIdResolved) {
-                        onCallIdResolved(call?.id ?? null);
-                    }
                     onLog('Outbound call created.', {
                         callId: call?.id ?? null,
                         destinationNumber: dialRequest.destinationNumber,
@@ -444,9 +523,6 @@ function BrowserSoftphoneSession({
 
         if (notification.call) {
             setActiveCall(notification.call);
-            if ('function' === typeof onCallIdResolved) {
-                onCallIdResolved(notification.call.id ?? null);
-            }
         }
 
         if ('callUpdate' !== notification.type || !notification.call) {
@@ -465,13 +541,21 @@ function BrowserSoftphoneSession({
             onStatusChange('Call connected.');
             onConnectionStateChange('Connected');
             ringbackRef.current?.stop();
+            const callControlId = notification.call.telnyxIDs?.telnyxCallControlId ?? null;
+            onLog('Browser call active notification received.', {
+                callId: notification.call.id ?? null,
+                telnyxCallControlId: callControlId,
+            });
+            if ('function' === typeof onCallIdResolved) {
+                onCallIdResolved(callControlId ?? notification.call.id ?? null);
+            }
         } else if ('destroy' === callState) {
             onStatusChange('Call ended.');
             onConnectionStateChange('Disconnected');
             ringbackRef.current?.stop();
-            onSessionEnd({ showSummary: true });
+            endSession({ showSummary: true });
         }
-    }, [localStream, notification, onCallIdResolved, onConnectionStateChange, onLog, onSessionEnd, onStatusChange]);
+    }, [localStream, notification, onCallIdResolved, onConnectionStateChange, onLog, onStatusChange]);
 
     useEffect(() => {
         return () => {
@@ -494,6 +578,15 @@ function BrowserSoftphoneSession({
             }
         };
     }, []);
+
+    const endSession = (options = {}) => {
+        if (sessionEndedRef.current) {
+            return;
+        }
+
+        sessionEndedRef.current = true;
+        onSessionEnd(options);
+    };
 
     const dialTone = (digit) => {
         if (!activeCall || 'function' !== typeof activeCall.dtmf) {
@@ -520,7 +613,7 @@ function BrowserSoftphoneSession({
         }
 
         ringbackRef.current?.stop();
-        onSessionEnd({ showSummary: true });
+        endSession({ showSummary: true });
     };
 
     return React.createElement(
@@ -614,6 +707,7 @@ export default function BrowserSoftphoneApp({
     const [muted, setMuted] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [callSessionId, setCallSessionId] = useState(null);
+    const [browserCallId, setBrowserCallId] = useState(null);
     const [transcriptTopic, setTranscriptTopic] = useState(null);
     const [transcriptStreamUrl, setTranscriptStreamUrl] = useState(null);
     const [transcriptStatus, setTranscriptStatus] = useState('Transcript stream idle.');
@@ -678,6 +772,7 @@ export default function BrowserSoftphoneApp({
             setCredential(null);
             setDialRequest(null);
             activeCallIdRef.current = null;
+            setBrowserCallId(null);
             setCallSessionId(null);
             setTranscriptTopic(null);
             setTranscriptStreamUrl(null);
@@ -696,10 +791,63 @@ export default function BrowserSoftphoneApp({
         }
 
         activeCallIdRef.current = normalizedCallId;
-        setCallSessionId(normalizedCallId);
-        setTranscriptTopic(`/poc/browser-softphone/${normalizedCallId}/transcript`);
-        setTranscriptStreamUrl(`/api/poc/browser-softphone/${normalizedCallId}/transcript/stream`);
-        setTranscriptStatus(`Transcript topic: /poc/browser-softphone/${normalizedCallId}/transcript`);
+        setBrowserCallId(normalizedCallId);
+        setTranscriptStatus(`Browser call ${normalizedCallId} connected. Waiting for transcript events.`);
+
+        if (callSessionId) {
+            const registerCallControl = async () => {
+                const url = `/api/poc/browser-softphone/${encodeURIComponent(callSessionId)}/call-control`;
+                console.debug('[browser-softphone-react] requesting call-control registration.', {
+                    callSessionId,
+                    callControlId: normalizedCallId,
+                    url,
+                });
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            callControlId: normalizedCallId,
+                        }),
+                    });
+                    const responseText = await response.text();
+                    let responseBody = null;
+                    try {
+                        responseBody = JSON.parse(responseText);
+                    } catch {
+                        responseBody = responseText;
+                    }
+
+                    console.debug('[browser-softphone-react] call-control registration returned.', {
+                        callSessionId,
+                        callControlId: normalizedCallId,
+                        url,
+                        status: response.status,
+                        ok: response.ok,
+                        response: responseBody,
+                    });
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Unable to register browser call control id.';
+                    appendLog('Failed to register browser call control id.', {
+                        callSessionId,
+                        callControlId: normalizedCallId,
+                        message,
+                    });
+                    console.debug('[browser-softphone-react] call-control registration failed.', {
+                        callSessionId,
+                        callControlId: normalizedCallId,
+                        url,
+                        message,
+                    });
+                }
+            };
+
+            void registerCallControl();
+        }
     };
 
     const updateAudioCatalog = async () => {
@@ -818,7 +966,12 @@ function mergeTranscriptSegments(currentSegments, segment) {
     }
 
     const existingSegment = nextSegments[matchedIndex];
-    if (existingSegment.fingerprint === normalizedSegment.fingerprint) {
+    if (
+        existingSegment.fingerprint
+        && normalizedSegment.fingerprint
+        && existingSegment.fingerprint === normalizedSegment.fingerprint
+        && existingSegment.isFinal === normalizedSegment.isFinal
+    ) {
         return currentSegments;
     }
 
@@ -968,6 +1121,7 @@ function TranscriptFeedPanel({
                             'data-transcript-side': transcriptSideForSpeaker(segment.speaker),
                             'data-transcript-speaker': segment.speaker,
                             'data-transcript-final': segment.isFinal ? 'true' : 'false',
+                            'data-bubble-tone': transcriptBubbleTone(transcriptSideForSpeaker(segment.speaker)),
                             className: `d-flex ${'right' === transcriptSideForSpeaker(segment.speaker) ? 'justify-content-end' : 'justify-content-start'}`,
                         },
                         React.createElement(
@@ -980,7 +1134,6 @@ function TranscriptFeedPanel({
                                     fontStyle: segment.isFinal ? 'normal' : 'italic',
                                 },
                                 'data-transcript-bubble': 'true',
-                                'data-bubble-tone': transcriptBubbleTone(transcriptSideForSpeaker(segment.speaker)),
                             },
                             React.createElement(
                                 'div',
@@ -1079,28 +1232,6 @@ function PostCallSummaryPanel({ summary }) {
             ),
         ),
     );
-}
-
-function buildMockPostCallSummary(callSessionId, destinationNumber) {
-    return {
-        callSessionId,
-        destinationNumber,
-        summary: 'The customer reported an intermittent service issue and asked for a follow-up once the line is stable.',
-        customerConcerns: [
-            'Intermittent call quality and dropped audio',
-            'Needs confirmation that service is restored',
-        ],
-        actionItems: [
-            'Verify service status with the customer',
-            'Send a follow-up update after the next monitoring window',
-        ],
-        keywords: [
-            'service quality',
-            'follow-up',
-            'monitoring',
-            'callback',
-        ],
-    };
 }
 
         let permissionStream = null;
@@ -1228,6 +1359,9 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
 
         const handleTranscriptSegment = (event) => {
             try {
+                if ('undefined' !== typeof window) {
+                    window.__browserSoftphoneTranscriptEventCount = (window.__browserSoftphoneTranscriptEventCount ?? 0) + 1;
+                }
                 const payload = JSON.parse(event.data);
                 const segment = payload?.segment ?? payload;
                 appendTranscriptSegment(segment);
@@ -1236,6 +1370,10 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
                 setTranscriptStatus('Transcript stream received an invalid payload.');
             }
         };
+
+        if ('undefined' !== typeof window) {
+            window.__browserSoftphoneTranscriptSink = handleTranscriptSegment;
+        }
 
         const handleReady = (event) => {
             try {
@@ -1261,6 +1399,10 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
             eventSource.close();
             if (transcriptSourceRef.current === eventSource) {
                 transcriptSourceRef.current = null;
+            }
+
+            if ('undefined' !== typeof window && window.__browserSoftphoneTranscriptSink === handleTranscriptSegment) {
+                delete window.__browserSoftphoneTranscriptSink;
             }
         };
     }, [callSessionId, transcriptStreamUrl]);
@@ -1318,7 +1460,80 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
     };
 
     const appendTranscriptSegment = (segment) => {
-        setTranscriptSegments((currentSegments) => mergeTranscriptSegments(currentSegments, segment));
+        const update = () => {
+            setTranscriptSegments((currentSegments) => {
+                if (!segment || 'object' !== typeof segment) {
+                    return currentSegments;
+                }
+
+                const id = Number.parseInt(String(segment.id ?? segment.sequence ?? ''), 10);
+                if (!Number.isFinite(id) || id <= 0) {
+                    return currentSegments;
+                }
+
+                const text = 'string' === typeof segment.text ? segment.text.trim() : '';
+                if (!text) {
+                    return currentSegments;
+                }
+
+                const normalizedSegment = {
+                    id,
+                    sequence: Number.isFinite(Number.parseInt(String(segment.sequence ?? id), 10)) ? Number.parseInt(String(segment.sequence ?? id), 10) : id,
+                    speaker: ['csr', 'agent', 'operator', 'representative'].includes('string' === typeof segment.speaker ? segment.speaker.trim().toLowerCase() : '') ? 'csr' : 'customer',
+                    text,
+                    occurredAt: 'string' === typeof segment.occurredAt ? segment.occurredAt : null,
+                    displayTime: 'string' === typeof segment.displayTime && segment.displayTime.trim() ? segment.displayTime.trim() : null,
+                    isFinal: true === segment.isFinal,
+                    sourceEventId: 'string' === typeof segment.sourceEventId && segment.sourceEventId.trim() ? segment.sourceEventId.trim() : null,
+                    fingerprint: 'string' === typeof segment.fingerprint && segment.fingerprint.trim() ? segment.fingerprint.trim() : null,
+                };
+
+                const key = normalizedSegment.sourceEventId ?? normalizedSegment.fingerprint ?? `segment:${normalizedSegment.id}`;
+                const nextSegments = [...currentSegments];
+                const matchedIndex = nextSegments.findIndex((currentSegment) => (currentSegment?.sourceEventId ?? currentSegment?.fingerprint ?? `segment:${currentSegment?.id}`) === key);
+
+                if (-1 === matchedIndex) {
+                    return [...nextSegments, normalizedSegment].sort((left, right) => {
+                        const sequenceDelta = (left.sequence ?? left.id ?? 0) - (right.sequence ?? right.id ?? 0);
+
+                        return 0 !== sequenceDelta ? sequenceDelta : left.id - right.id;
+                    });
+                }
+
+                const existingSegment = nextSegments[matchedIndex];
+                if (
+                    existingSegment.fingerprint
+                    && normalizedSegment.fingerprint
+                    && existingSegment.fingerprint === normalizedSegment.fingerprint
+                    && existingSegment.isFinal === normalizedSegment.isFinal
+                ) {
+                    return currentSegments;
+                }
+
+                if (existingSegment.isFinal && !normalizedSegment.isFinal) {
+                    return currentSegments;
+                }
+
+                nextSegments[matchedIndex] = {
+                    ...normalizedSegment,
+                    id: existingSegment.id,
+                    sequence: existingSegment.sequence,
+                };
+
+                return nextSegments.sort((left, right) => {
+                    const sequenceDelta = (left.sequence ?? left.id ?? 0) - (right.sequence ?? right.id ?? 0);
+
+                    return 0 !== sequenceDelta ? sequenceDelta : left.id - right.id;
+                });
+            });
+        };
+
+        if ('function' === typeof flushSync) {
+            flushSync(update);
+            return;
+        }
+
+        update();
     };
 
     const startCall = async () => {
@@ -1538,7 +1753,7 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
         }
 
         return React.createElement(
-            TelnyxRTCProvider,
+            BrowserSoftphoneTelnyxProvider,
             {
                 credential,
                 options: {
@@ -1568,7 +1783,20 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
                 onToggleMute: toggleMute,
             }),
         );
-    }, [callSessionId, credential, dialRequest, effectiveSpeakerId, localStream, muted, speakerRoutingSupported, speakerVolume]);
+    }, [
+        callSessionId,
+        credential,
+        dialRequest,
+        effectiveSpeakerId,
+        localStream,
+        muted,
+        postCallSummary,
+        speakerRoutingSupported,
+        speakerVolume,
+        transcriptSegments,
+        transcriptStatus,
+        transcriptTopic,
+    ]);
 
     return React.createElement(
         'div',
@@ -1691,19 +1919,15 @@ function buildMockPostCallSummary(callSessionId, destinationNumber) {
                             { className: 'text-secondary' },
                             'Press Browser Call to request a token and start the Telnyx React client.',
                         ),
-                    'function' === typeof TranscriptFeedPanel
-                        ? React.createElement(TranscriptFeedPanel, {
-                            status: transcriptStatus,
-                            topic: transcriptTopic,
-                            segments: transcriptSegments,
-                            onClear: () => setTranscriptSegments([]),
-                        })
-                        : null,
-                    'function' === typeof PostCallSummaryPanel
-                        ? React.createElement(PostCallSummaryPanel, {
-                            summary: postCallSummary,
-                        })
-                        : null,
+                    React.createElement(BrowserSoftphoneTranscriptPanel, {
+                        status: transcriptStatus,
+                        topic: transcriptTopic,
+                        segments: transcriptSegments,
+                        onClear: () => setTranscriptSegments([]),
+                    }),
+                    React.createElement(BrowserSoftphonePostCallSummaryPanel, {
+                        summary: postCallSummary,
+                    }),
                 ),
             ),
         ),

@@ -22,7 +22,7 @@ final class BrowserCallTokenIssueGuard
     public function assertAllowed(Tenant $tenant, Property $property, Contact $contact, User $user): void
     {
         $key = sprintf(
-            'browser_call_token:%s:%s:%s:%s',
+            'browser_call_token.%s.%s.%s.%s',
             (string) ($tenant->getId() ?? 'tenant'),
             (string) ($property->getId() ?? 'property'),
             (string) ($contact->getId() ?? 'contact'),

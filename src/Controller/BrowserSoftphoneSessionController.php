@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Capture\CapturePolicy;
 use App\Entity\CallSession;
+use App\Entity\CallLeg;
 use App\Entity\BrowserSoftphoneSession;
 use App\Entity\UserTenantMembership;
 use App\Repository\BrowserSoftphoneSessionRepository;
+use App\Repository\CallLegRepository;
 use App\Repository\CallSessionRepository;
 use App\Security\Voter\TenantScopedEntityVoter;
 use App\Service\BrowserCallEventReconcilerService;
 use App\Service\BrowserSoftphoneSessionService;
+use App\Service\CallCaptureControlService;
 use App\Service\CurrentTenantProviderInterface;
 use App\Service\TenantMembershipAccessService;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -86,10 +91,13 @@ final class BrowserSoftphoneSessionController extends AbstractController
         Request $request,
         CurrentTenantProviderInterface $tenantProvider,
         BrowserSoftphoneSessionRepository $sessions,
+        CallLegRepository $callLegs,
         BrowserSoftphoneSessionService $browserSoftphoneSessions,
+        CallCaptureControlService $captureControl,
         TenantMembershipAccessService $membershipAccess,
         EntityManagerInterface $entityManager,
         BrowserCallEventReconcilerService $reconciler,
+        LoggerInterface $logger,
     ): JsonResponse {
         $tenantProvider->requireCurrentTenant();
         $membershipAccess->requireAnyRole([
@@ -156,6 +164,40 @@ final class BrowserSoftphoneSessionController extends AbstractController
                 } catch (\Throwable $exception) {
                     // Best effort: reconciliation does not block event recording.
                 }
+
+                if ('call.active' === $event) {
+                    $resolvedCallControlId = $browserSession->getTelnyxCallControlId()
+                        ?? $this->resolveBrowserCallControlId($browserSession->getCallSession(), $callLegs);
+
+                    if (null !== $resolvedCallControlId && '' !== trim($resolvedCallControlId)) {
+                        $logger->info('Browser softphone call became active; requesting live transcription.', [
+                            'browserSoftphoneSessionId' => $browserSession->getId(),
+                            'callSessionId' => $browserSession->getCallSession()->getId(),
+                            'callId' => $callId,
+                            'telnyxCallControlId' => $resolvedCallControlId,
+                        ]);
+                        $browserSession->setTelnyxCallControlId($resolvedCallControlId);
+                        $entityManager->flush();
+
+                        try {
+                            $captureControl->startTranscription(
+                                $browserSession->getCallSession(),
+                                null,
+                                new CapturePolicy(recordAudio: false, transcribeAudio: true),
+                                'browser-softphone',
+                                $resolvedCallControlId,
+                            );
+                        } catch (\Throwable $exception) {
+                            // Best effort: live transcription should not block call state updates.
+                        }
+                    } else {
+                        $logger->warning('Browser softphone call became active but no call-control ID was available for live transcription.', [
+                            'browserSoftphoneSessionId' => $browserSession->getId(),
+                            'callSessionId' => $browserSession->getCallSession()->getId(),
+                            'callId' => $callId,
+                        ]);
+                    }
+                }
             } catch (\RuntimeException $exception) {
                 return $this->json(['ok' => false, 'error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
             }
@@ -191,5 +233,22 @@ final class BrowserSoftphoneSessionController extends AbstractController
         }
 
         return is_array($data) ? $data : [];
+    }
+
+    private function resolveBrowserCallControlId(CallSession $callSession, CallLegRepository $callLegs): ?string
+    {
+        $legs = $callLegs->findBy(['callSession' => $callSession], ['createdAt' => 'DESC']);
+        foreach ($legs as $leg) {
+            if (!$leg instanceof CallLeg) {
+                continue;
+            }
+
+            $callControlId = $leg->getCallControlId();
+            if (null !== $callControlId && '' !== trim($callControlId)) {
+                return trim($callControlId);
+            }
+        }
+
+        return null;
     }
 }

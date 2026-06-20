@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\CallLeg;
+use App\Entity\CallSession;
 use App\Entity\TelnyxEvent;
 use App\Repository\TelnyxEventRepository;
+use App\Service\PocBrowserSoftphoneTranscriptService;
 use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
@@ -54,6 +57,7 @@ final class TelnyxWebhookController extends AbstractController
         TelnyxCaptureService $capture,
         DevTelnyxTranscriptionTestService $transcriptionTest,
         SttProviderRegistry $providers,
+        PocBrowserSoftphoneTranscriptService $pocTranscripts,
     ): JsonResponse {
         try {
             $payload = json_decode($request->getContent(), true, flags: JSON_THROW_ON_ERROR);
@@ -134,6 +138,7 @@ final class TelnyxWebhookController extends AbstractController
                 if ($provider instanceof WebhookDrivenSttProviderInterface) {
                     $provider->handleWebhook($payload, $event);
                 }
+                $this->publishPocTranscriptSegment($event, $data, $pocTranscripts);
             } catch (\Throwable $exception) {
                 $this->logger->error('Telnyx transcription provider processing failed after webhook persistence.', [
                     'provider_event_id' => $providerEventId,
@@ -207,6 +212,176 @@ final class TelnyxWebhookController extends AbstractController
             'call.transcription.saved',
             'call.transcription.error',
         ], true);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function publishPocTranscriptSegment(
+        TelnyxEvent $event,
+        array $data,
+        PocBrowserSoftphoneTranscriptService $transcripts,
+    ): void {
+        $callControlId = $this->stringValue($data['payload'] ?? [], 'call_control_id')
+            ?? $event->getCallControlId()
+            ?? $event->getCallLeg()?->getCallControlId();
+        if (null === $callControlId || '' === trim($callControlId)) {
+            $this->logger->debug('Poc browser softphone transcript mirror skipped: no call-control id.', [
+                'provider_event_id' => $event->getProviderEventId(),
+                'event_type' => $event->getEventType(),
+            ]);
+            return;
+        }
+
+        $callSessionId = $transcripts->resolveCallSessionIdForCallControlId($callControlId);
+        if (null === $callSessionId) {
+            $this->logger->debug('Poc browser softphone transcript mirror skipped: unknown call-control id.', [
+                'provider_event_id' => $event->getProviderEventId(),
+                'call_control_id' => $callControlId,
+            ]);
+            return;
+        }
+
+        $session = $event->getCallSession();
+
+        $text = $this->extractTranscriptText($data['payload'] ?? []);
+        if (null === $text || '' === trim($text)) {
+            $this->logger->debug('Poc browser softphone transcript mirror skipped: empty transcript text.', [
+                'provider_event_id' => $event->getProviderEventId(),
+                'call_control_id' => $callControlId,
+                'call_session_id' => $callSessionId,
+            ]);
+            return;
+        }
+
+        $speaker = $this->speakerFromTranscriptPayload(
+            $session,
+            $event->getCallLeg(),
+            $data['payload'] ?? [],
+        );
+        $occurredAt = $this->occurredAtFromWebhook($event->getPayload()) ?? $event->getReceivedAt();
+        $isFinal = $this->isFinalTranscriptPayload($data['payload'] ?? []);
+
+        $transcripts->recordSegment(
+            $callSessionId,
+            $speaker,
+            $text,
+            $occurredAt,
+            $isFinal,
+            $event->getProviderEventId(),
+        );
+
+        $this->logger->debug('Poc browser softphone transcript mirrored.', [
+            'provider_event_id' => $event->getProviderEventId(),
+            'call_control_id' => $callControlId,
+            'call_session_id' => $callSessionId,
+            'speaker' => $speaker,
+            'text' => $text,
+            'is_final' => $isFinal,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function extractTranscriptText(array $payload): ?string
+    {
+        $text = $this->stringValue($payload, 'transcription_text')
+            ?? $this->stringValue($payload, 'text')
+            ?? $this->stringValue($payload, 'transcript');
+        if (null !== $text) {
+            return $text;
+        }
+
+        $transcriptionData = $payload['transcription_data'] ?? null;
+        if (is_array($transcriptionData)) {
+            return $this->stringValue($transcriptionData, 'transcript')
+                ?? $this->stringValue($transcriptionData, 'text');
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function isFinalTranscriptPayload(array $payload): bool
+    {
+        $transcriptionData = $payload['transcription_data'] ?? null;
+        if (is_array($transcriptionData) && array_key_exists('is_final', $transcriptionData)) {
+            return true === $transcriptionData['is_final'];
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function speakerFromTranscriptPayload(
+        ?CallSession $session,
+        ?CallLeg $leg,
+        array $payload,
+    ): string {
+        $track = $this->transcriptionTrackFromPayload($payload);
+        if ('inbound' === $track) {
+            return 'csr';
+        }
+
+        if ('outbound' === $track) {
+            return 'customer';
+        }
+
+        if (null !== $leg) {
+            return match ($leg->getDirection()) {
+                'outgoing' => 'csr',
+                'incoming' => 'customer',
+                default => match ($leg->getRole()) {
+                    CallLeg::ROLE_AGENT, CallLeg::ROLE_VENDOR, CallLeg::ROLE_SYSTEM => 'csr',
+                    CallLeg::ROLE_CALLER, CallLeg::ROLE_CUSTOMER => 'customer',
+                    default => 'customer',
+                },
+            };
+        }
+
+        if (null !== $session) {
+            return CallSession::CALL_MODE_BROWSER === $session->getCallMode() ? 'csr' : 'customer';
+        }
+
+        return 'customer';
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function transcriptionTrackFromPayload(array $payload): ?string
+    {
+        $transcriptionData = $payload['transcription_data'] ?? null;
+        if (!is_array($transcriptionData)) {
+            return null;
+        }
+
+        $track = $transcriptionData['transcription_track'] ?? null;
+        if (!is_string($track) || '' === trim($track)) {
+            return null;
+        }
+
+        return strtolower(trim($track));
+    }
+
+    private function occurredAtFromWebhook(array $webhook): ?\DateTimeImmutable
+    {
+        $data = $webhook['data'] ?? null;
+        $occurredAt = is_array($data) ? ($data['occurred_at'] ?? null) : null;
+        if (!is_string($occurredAt) || '' === trim($occurredAt)) {
+            return null;
+        }
+
+        try {
+            return new \DateTimeImmutable($occurredAt);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function handleCallControlEvent(

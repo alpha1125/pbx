@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use App\Controller\TelnyxWebhookController;
+use App\Entity\CallLeg;
+use App\Entity\CallSession;
 use App\Entity\TelnyxEvent;
 use App\Repository\TelnyxEventRepository;
+use App\Service\PocBrowserSoftphoneTranscriptService;
 use App\Service\TelnyxCallControlService;
 use App\Service\TelnyxCallProjectionService;
 use App\Service\TelnyxCallStateService;
 use App\Service\ClientStateService;
 use App\Service\CapturePolicyResolver;
 use App\Service\ClickToCallService;
+use App\Service\BrowserCallEventReconcilerService;
 use App\Service\DevTelnyxTranscriptionTestService;
 use App\Service\TelnyxCaptureService;
 use App\Service\TelnyxRecordingProjectionService;
@@ -121,16 +125,19 @@ final class TelnyxWebhookControllerTest extends TestCase
         $capture->expects(self::never())->method('startForInboundIntroCompleted');
         $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
         $devTest->expects(self::never())->method('handleWebhook');
+        $reconciler = $this->browserCallReconciler();
 
         $response = $this->controller(new NullLogger())(
             $this->webhookRequest('event-duplicate', 'call.initiated'),
             $repository,
             $entityManager,
             $projection,
+            $reconciler,
             $recordingProjection,
             $capture,
             $devTest,
             $this->providers(),
+            new PocBrowserSoftphoneTranscriptService(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -158,6 +165,7 @@ final class TelnyxWebhookControllerTest extends TestCase
         $capture->expects(self::never())->method('startForInboundIntroCompleted');
         $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
         $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+        $reconciler = $this->browserCallReconciler();
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())
             ->method('error')
@@ -174,10 +182,12 @@ final class TelnyxWebhookControllerTest extends TestCase
             $repository,
             $entityManager,
             $projection,
+            $reconciler,
             $recordingProjection,
             $capture,
             $devTest,
             $this->providers(),
+            new PocBrowserSoftphoneTranscriptService(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -205,6 +215,7 @@ final class TelnyxWebhookControllerTest extends TestCase
         $capture->expects(self::never())->method('startForInboundIntroCompleted');
         $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
         $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+        $reconciler = $this->browserCallReconciler();
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())
             ->method('error')
@@ -221,10 +232,12 @@ final class TelnyxWebhookControllerTest extends TestCase
             $repository,
             $entityManager,
             $projection,
+            $reconciler,
             $recordingProjection,
             $capture,
             $devTest,
             $this->providers(),
+            new PocBrowserSoftphoneTranscriptService(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -246,6 +259,7 @@ final class TelnyxWebhookControllerTest extends TestCase
         $capture->expects(self::never())->method('startForInboundIntroCompleted');
         $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
         $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+        $reconciler = $this->browserCallReconciler();
 
         $provider = new class() implements SttProviderInterface, WebhookDrivenSttProviderInterface {
             public bool $handled = false;
@@ -270,14 +284,175 @@ final class TelnyxWebhookControllerTest extends TestCase
             $repository,
             $entityManager,
             $projection,
+            $reconciler,
             $recordingProjection,
             $capture,
             $devTest,
             new SttProviderRegistry([$provider], 'telnyx'),
+            new PocBrowserSoftphoneTranscriptService(),
         );
 
         self::assertSame(200, $response->getStatusCode());
         self::assertTrue($provider->handled);
+    }
+
+    public function testBrowserCallTranscriptionIsMirroredToThePocTranscriptStore(): void
+    {
+        $controller = $this->controller(new NullLogger());
+        $reflection = new \ReflectionMethod($controller, 'publishPocTranscriptSegment');
+
+        $session = (new CallSession('provider-session-1'))
+            ->setCallMode(CallSession::CALL_MODE_BROWSER);
+        $leg = (new CallLeg($session, 'provider-leg-1'))
+            ->setDirection('outgoing')
+            ->setRole(CallLeg::ROLE_AGENT)
+            ->setCallControlId('control-1');
+        $event = (new TelnyxEvent('event-transcript-1', 'call.transcription', [
+            'data' => [
+                'payload' => [
+                    'call_control_id' => 'control-1',
+                    'transcription_data' => [
+                        'transcription_track' => 'outbound',
+                        'is_final' => true,
+                    ],
+                    'transcript' => 'Hello from Telnyx',
+                ],
+            ],
+        ], 'control-1'))
+            ->setCallSession($session)
+            ->setCallLeg($leg);
+        $transcripts = new PocBrowserSoftphoneTranscriptService();
+        $transcripts->registerCallControlId('poc-call-1', 'control-1');
+
+        $reflection->invoke($controller, $event, $event->getPayload()['data'], $transcripts);
+
+        $stored = $transcripts->fetchSince('poc-call-1', 0);
+        self::assertCount(1, $stored['segments']);
+        self::assertSame('Hello from Telnyx', $stored['segments'][0]['text']);
+        self::assertSame('customer', $stored['segments'][0]['speaker']);
+    }
+
+    public function testBrowserCallTranscriptionIsMirroredWhenWebhookEventSessionIsNotHydrated(): void
+    {
+        $controller = $this->controller(new NullLogger());
+        $reflection = new \ReflectionMethod($controller, 'publishPocTranscriptSegment');
+
+        $session = (new CallSession('provider-session-2'))
+            ->setCallMode(CallSession::CALL_MODE_BROWSER);
+        $leg = (new CallLeg($session, 'provider-leg-2'))
+            ->setDirection('outgoing')
+            ->setRole(CallLeg::ROLE_AGENT)
+            ->setCallControlId('control-2');
+        $event = new TelnyxEvent('event-transcript-2', 'call.transcription', [
+            'data' => [
+                'payload' => [
+                    'call_control_id' => 'control-2',
+                    'transcription_data' => [
+                        'transcription_track' => 'outbound',
+                        'is_final' => true,
+                    ],
+                    'transcript' => 'Hello from an unhydrated Telnyx event',
+                ],
+            ],
+        ], 'control-2');
+        $event->setCallLeg($leg);
+
+        $transcripts = new PocBrowserSoftphoneTranscriptService();
+        $transcripts->registerCallControlId('poc-call-2', 'control-2');
+
+        $reflection->invoke($controller, $event, $event->getPayload()['data'], $transcripts);
+
+        $stored = $transcripts->fetchSince('poc-call-2', 0);
+        self::assertCount(1, $stored['segments']);
+        self::assertSame('Hello from an unhydrated Telnyx event', $stored['segments'][0]['text']);
+        self::assertSame('customer', $stored['segments'][0]['speaker']);
+    }
+
+    public function testTranscriptionWebhookInvokesPocTranscriptMirroring(): void
+    {
+        $repository = $this->createMock(TelnyxEventRepository::class);
+        $repository->expects(self::once())->method('findOneByProviderEventId')->willReturn(null);
+
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('persist');
+        $entityManager->expects(self::once())->method('flush');
+
+        $projection = $this->createMock(TelnyxCallProjectionService::class);
+        $projection->expects(self::once())->method('project');
+
+        $recordingProjection = $this->createMock(TelnyxRecordingProjectionService::class);
+        $recordingProjection->expects(self::once())->method('project');
+
+        $capture = $this->createMock(TelnyxCaptureService::class);
+        $capture->expects(self::never())->method('startForBridgedInboundLeg');
+        $capture->expects(self::never())->method('startForInboundIntroCompleted');
+
+        $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
+        $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+
+        $provider = new class() implements SttProviderInterface, WebhookDrivenSttProviderInterface {
+            public bool $handled = false;
+
+            public function getName(): string
+            {
+                return 'telnyx';
+            }
+
+            public function submit(\App\Entity\TranscriptionJob $job): void
+            {
+            }
+
+            public function handleWebhook(array $payload, TelnyxEvent $event): void
+            {
+                $this->handled = true;
+            }
+        };
+
+        $transcripts = new PocBrowserSoftphoneTranscriptService();
+        $transcripts->registerCallControlId('poc-call-3', 'control-3');
+
+        $request = Request::create(
+            '/api/telnyx/webhook',
+            'POST',
+            content: json_encode([
+                'data' => [
+                    'id' => 'event-transcript-controller',
+                    'event_type' => 'call.transcription',
+                    'occurred_at' => '2026-06-13T10:00:00+00:00',
+                    'payload' => [
+                        'call_session_id' => 'session-3',
+                        'call_leg_id' => 'leg-3',
+                        'call_control_id' => 'control-3',
+                        'transcription_data' => [
+                            'transcription_track' => 'outbound',
+                            'is_final' => true,
+                            'transcript' => 'Transcript from controller path',
+                        ],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        );
+
+        $response = $this->controller(new NullLogger())(
+            $request,
+            $repository,
+            $entityManager,
+            $projection,
+            $this->browserCallReconciler(),
+            $recordingProjection,
+            $capture,
+            $devTest,
+            new SttProviderRegistry([$provider], 'telnyx'),
+            $transcripts,
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($provider->handled);
+
+        $stored = $transcripts->fetchSince('poc-call-3', 0);
+        self::assertCount(1, $stored['segments']);
+        self::assertSame('Transcript from controller path', $stored['segments'][0]['text']);
+        self::assertSame('customer', $stored['segments'][0]['speaker']);
     }
 
     public function testInboundSpeakEndedStartsCapture(): void
@@ -296,16 +471,19 @@ final class TelnyxWebhookControllerTest extends TestCase
         $capture->expects(self::never())->method('startForBridgedInboundLeg');
         $devTest = $this->createMock(DevTelnyxTranscriptionTestService::class);
         $devTest->expects(self::once())->method('handleWebhook')->willReturn(false);
+        $reconciler = $this->browserCallReconciler();
 
         $response = $this->controller(new NullLogger())(
             $this->webhookRequest('event-speak-ended-capture', 'call.speak.ended'),
             $repository,
             $entityManager,
             $projection,
+            $reconciler,
             $recordingProjection,
             $capture,
             $devTest,
             $this->providers(),
+            new PocBrowserSoftphoneTranscriptService(),
         );
 
         self::assertSame(200, $response->getStatusCode());
@@ -355,6 +533,31 @@ final class TelnyxWebhookControllerTest extends TestCase
         $service->method('handleWebhook')->willReturn($handled);
 
         return $service;
+    }
+
+    private function browserCallReconciler(): BrowserCallEventReconcilerService
+    {
+        $callSessionManager = $this->createMock(EntityManagerInterface::class);
+        $callSessionManager->method('getClassMetadata')
+            ->willReturn(new \Doctrine\ORM\Mapping\ClassMetadata(\App\Entity\CallSession::class));
+        $callSessionRegistry = $this->createMock(\Doctrine\Persistence\ManagerRegistry::class);
+        $callSessionRegistry->method('getManagerForClass')->willReturn($callSessionManager);
+
+        $browserSessionManager = $this->createMock(EntityManagerInterface::class);
+        $browserSessionManager->method('getClassMetadata')
+            ->willReturn(new \Doctrine\ORM\Mapping\ClassMetadata(\App\Entity\BrowserSoftphoneSession::class));
+        $browserSessionRegistry = $this->createMock(\Doctrine\Persistence\ManagerRegistry::class);
+        $browserSessionRegistry->method('getManagerForClass')->willReturn($browserSessionManager);
+
+        return new BrowserCallEventReconcilerService(
+            new \App\Repository\CallSessionRepository($callSessionRegistry),
+            new \App\Repository\BrowserSoftphoneSessionRepository($browserSessionRegistry),
+            $this->createMock(EntityManagerInterface::class),
+            $this->createMock(\App\Service\CallEventEngineService::class),
+            $this->createMock(\App\Service\CommunicationTimelineProjector::class),
+            $this->createMock(\App\Service\AuditLogger::class),
+            new NullLogger(),
+        );
     }
 
     private function providers(): SttProviderRegistry

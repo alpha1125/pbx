@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Controller\Poc;
 
+use App\Transcription\Provider\TelnyxTranscriptionConfiguration;
+use App\Service\TelnyxCallControlService;
 use App\Service\PocBrowserSoftphoneTranscriptService;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -14,6 +17,71 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class BrowserSoftphoneTranscriptController extends AbstractController
 {
+    #[Route('/api/poc/browser-softphone/{callSessionId}/call-control', name: 'api_poc_browser_softphone_call_control_register', methods: ['POST'])]
+    public function registerCallControlId(
+        string $callSessionId,
+        Request $request,
+        PocBrowserSoftphoneTranscriptService $transcripts,
+        TelnyxCallControlService $callControl,
+        TelnyxTranscriptionConfiguration $transcriptionConfiguration,
+        LoggerInterface $logger,
+    ): JsonResponse {
+        try {
+            $payload = json_decode((string) $request->getContent(), true, flags: JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return $this->json(['ok' => false, 'error' => 'Invalid JSON.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        if (!is_array($payload)) {
+            return $this->json(['ok' => false, 'error' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $callControlId = is_string($payload['callControlId'] ?? null) ? trim((string) $payload['callControlId']) : '';
+        if ('' === $callControlId) {
+            return $this->json(['ok' => false, 'error' => 'callControlId is required.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $transcripts->registerCallControlId($callSessionId, $callControlId);
+        } catch (\Throwable $exception) {
+            return $this->json(['ok' => false, 'error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        $transcriptionResponse = null;
+        try {
+            $logger->info('Poc browser softphone call-control registered; requesting Telnyx live transcription.', [
+                'callSessionId' => $callSessionId,
+                'callControlId' => $callControlId,
+            ]);
+
+            $transcriptionResponse = $callControl->startTranscription($callControlId, [
+                ...$transcriptionConfiguration->toTranscriptionStartPayload(),
+                'command_id' => sprintf('poc-browser-softphone-%s-transcription-start', $callSessionId),
+            ]);
+
+            $logger->info('Poc browser softphone Telnyx transcription start returned.', [
+                'callSessionId' => $callSessionId,
+                'callControlId' => $callControlId,
+                'response' => $transcriptionResponse,
+            ]);
+        } catch (\Throwable $exception) {
+            $logger->warning('Poc browser softphone Telnyx transcription start failed.', [
+                'callSessionId' => $callSessionId,
+                'callControlId' => $callControlId,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return $this->json([
+            'ok' => true,
+            'callSessionId' => $callSessionId,
+            'callControlId' => $callControlId,
+            'topic' => $transcripts->topicForCallSession($callSessionId),
+            'streamUrl' => $transcripts->streamUrlForCallSession($callSessionId),
+            'transcriptionStart' => $transcriptionResponse,
+        ]);
+    }
+
     #[Route('/api/poc/browser-softphone/{callSessionId}/transcript', name: 'api_poc_browser_softphone_transcript_ingest', methods: ['POST'])]
     public function ingest(
         string $callSessionId,

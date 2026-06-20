@@ -76,4 +76,16 @@ final class PocBrowserSoftphoneTranscriptServiceTest extends TestCase
         self::assertTrue($stored['segments'][0]['isFinal']);
         self::assertSame('I need the system back online.', $stored['segments'][0]['text']);
     }
+
+    public function testCallControlIdsResolveToTheStableTranscriptSession(): void
+    {
+        $service = new PocBrowserSoftphoneTranscriptService();
+        $callSessionId = 'poc-call-'.bin2hex(random_bytes(4));
+        $callControlId = 'control-'.bin2hex(random_bytes(4));
+
+        $service->registerCallControlId($callSessionId, $callControlId);
+
+        self::assertSame($callSessionId, $service->resolveCallSessionIdForCallControlId($callControlId));
+        self::assertNull($service->resolveCallSessionIdForCallControlId('control-missing'));
+    }
 }

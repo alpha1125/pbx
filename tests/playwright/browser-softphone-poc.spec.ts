@@ -19,11 +19,22 @@ async function installBrowserSoftphoneMocks(page) {
       listeners: new Set<() => void>(),
     };
 
+    const callState = {
+      emitDestroyOnHangup: false,
+    };
+
     (window as Window & {
       __browserSoftphoneSetDevices?: (devices: Array<{ kind: string; deviceId: string; label: string; groupId: string }>) => void;
       __browserSoftphoneDispatchDeviceChange?: () => void;
+      __browserSoftphoneSetEmitDestroyOnHangup?: (value: boolean) => void;
     }).__browserSoftphoneSetDevices = (devices) => {
       deviceState.devices = devices;
+    };
+
+    (window as Window & {
+      __browserSoftphoneSetEmitDestroyOnHangup?: (value: boolean) => void;
+    }).__browserSoftphoneSetEmitDestroyOnHangup = (value) => {
+      callState.emitDestroyOnHangup = Boolean(value);
     };
 
     (window as Window & {
@@ -140,7 +151,14 @@ async function installBrowserSoftphoneMocks(page) {
     (window as Window & {
       __browserSoftphoneEmitTranscript?: (payload: unknown, type?: string) => void;
       __browserSoftphoneTranscriptSources?: Array<{ url: string; emit: (type: string, payload: unknown) => void }>;
+      __browserSoftphoneTranscriptSink?: (event: { data: string }) => void;
+      __browserSoftphoneTranscriptEventCount?: number;
     }).__browserSoftphoneEmitTranscript = (payload, type = 'transcript.segment') => {
+      (window as Window & {
+        __browserSoftphoneTranscriptSink?: (event: { data: string }) => void;
+      }).__browserSoftphoneTranscriptSink?.({
+        data: JSON.stringify(payload),
+      });
       (window as Window & {
         __browserSoftphoneTranscriptSources?: Array<{ url: string; emit: (type: string, payload: unknown) => void }>;
       }).__browserSoftphoneTranscriptSources?.forEach((source) => source.emit(type, payload));
@@ -163,6 +181,7 @@ async function installBrowserSoftphoneMocks(page) {
       }
 
       newCall(options: { destinationNumber: string }) {
+        const handlers = this.handlers;
         const call = {
           id: 'browser-softphone-call-1',
           state: 'active',
@@ -174,7 +193,21 @@ async function installBrowserSoftphoneMocks(page) {
               }
             : null,
           remoteStream: null,
-          hangup() {},
+          hangup() {
+            if (!callState.emitDestroyOnHangup) {
+              return;
+            }
+
+            setTimeout(() => {
+              handlers['telnyx.notification']?.({
+                type: 'callUpdate',
+                call: {
+                  ...call,
+                  state: 'destroy',
+                },
+              });
+            }, 0);
+          },
           dtmf() {},
         };
 
@@ -204,6 +237,18 @@ async function installBrowserSoftphoneMocks(page) {
       },
     });
   });
+
+  await page.route('**/api/poc/browser-softphone/poc-call-1/call-control', async (route) => {
+    await route.fulfill({
+      json: {
+        ok: true,
+        callSessionId: 'poc-call-1',
+        callControlId: 'browser-softphone-call-1',
+        topic: '/poc/browser-softphone/poc-call-1/transcript',
+        streamUrl: '/api/poc/browser-softphone/poc-call-1/transcript/stream',
+      },
+    });
+  });
 }
 
 async function openSoftphone(page) {
@@ -217,6 +262,10 @@ async function openSoftphoneSettings(page) {
   await expect(page.getByLabel('Microphone')).toBeVisible();
 }
 
+async function prepareSoftphoneCall(page) {
+  await page.locator('input[type="tel"]').fill('+15557654321');
+}
+
 async function readSoftphonePreferences(page) {
   return await page.evaluate(() => {
     const raw = window.localStorage.getItem('pbx.softphone.preferences');
@@ -227,6 +276,7 @@ async function readSoftphonePreferences(page) {
 test('browser softphone mute toggles local state without backend calls', async ({ page }) => {
   await installBrowserSoftphoneMocks(page);
   await openSoftphone(page);
+  await prepareSoftphoneCall(page);
 
   await page.getByRole('button', { name: 'Browser Call' }).click();
 
@@ -254,8 +304,8 @@ test('browser softphone desktop settings panel opens collapsed content', async (
   await page.getByRole('button', { name: 'Settings ⚙' }).click();
 
   await expect(page.getByRole('button', { name: 'Refresh Devices' })).toBeVisible();
-  await expect(page.getByText('Audio Processing')).toBeVisible();
-  await expect(page.getByText('Diagnostics')).toBeVisible();
+  await expect(page.getByText('Audio Processing', { exact: true })).toBeVisible();
+  await expect(page.getByText('Diagnostics', { exact: true })).toBeVisible();
 });
 
 test('browser softphone mobile settings panel opens as a bottom sheet', async ({ page }) => {
@@ -268,9 +318,9 @@ test('browser softphone mobile settings panel opens as a bottom sheet', async ({
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Refresh Devices' })).toBeVisible();
-  await expect(dialog.getByText('Audio Devices')).toBeVisible();
-  await expect(dialog.getByText('Audio Processing')).toBeVisible();
-  await expect(dialog.getByText('Diagnostics')).toBeVisible();
+  await expect(dialog.getByText('Audio Devices', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Audio Processing', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Diagnostics', { exact: true })).toBeVisible();
 });
 
 test('browser softphone persists audio device preferences across reloads', async ({ page }) => {
@@ -278,7 +328,7 @@ test('browser softphone persists audio device preferences across reloads', async
   await openSoftphoneSettings(page);
 
   await page.getByLabel('Microphone').selectOption('mic-1');
-  await page.getByLabel('Speaker').selectOption('speaker-1');
+  await page.getByLabel('Speaker', { exact: true }).selectOption('speaker-1');
   await page.getByLabel('Diagnostics enabled').uncheck();
 
   await expect.poll(async () => readSoftphonePreferences(page)).toMatchObject({
@@ -297,7 +347,7 @@ test('browser softphone persists audio device preferences across reloads', async
   await page.getByRole('button', { name: 'Settings ⚙' }).click();
 
   await expect(page.getByLabel('Microphone')).toHaveValue('mic-1');
-  await expect(page.getByLabel('Speaker')).toHaveValue('speaker-1');
+  await expect(page.getByLabel('Speaker', { exact: true })).toHaveValue('speaker-1');
   await expect(page.getByLabel('Diagnostics enabled')).not.toBeChecked();
 });
 
@@ -305,7 +355,7 @@ test('browser softphone refreshes device choices when the media device list chan
   await installBrowserSoftphoneMocks(page);
   await openSoftphoneSettings(page);
 
-  await expect(page.getByLabel('Microphone')).toHaveValue('');
+  await expect(page.getByLabel('Microphone')).toHaveValue('mic-1');
 
   await page.evaluate(() => {
     (window as Window & {
@@ -321,18 +371,44 @@ test('browser softphone refreshes device choices when the media device list chan
   });
 
   await expect(page.getByLabel('Microphone')).toHaveValue('mic-2');
-  await expect(page.getByLabel('Speaker')).toHaveValue('speaker-2');
+  await expect(page.getByLabel('Speaker', { exact: true })).toHaveValue('speaker-2');
   await expect(page.getByText('Audio devices loaded.')).toBeVisible();
+});
+
+test('browser softphone shows a prominent transcript panel before the call starts', async ({ page }) => {
+  await installBrowserSoftphoneMocks(page);
+  await openSoftphone(page);
+
+  const transcriptPanel = page.locator('[data-transcript-panel]');
+  await expect(transcriptPanel).toBeVisible();
+  await expect(transcriptPanel.getByText('Live Transcript')).toBeVisible();
+  await expect(page.locator('[data-transcript-panel-badge]')).toHaveText('Waiting');
+  await expect(page.locator('[data-transcript-panel-message]')).toContainText('This pane stays visible so you can see transcripts as soon as the call starts.');
+  await expect(page.locator('[data-transcript-scroll-region]')).toBeVisible();
+  await expect(page.getByText('No transcript segments yet.')).toBeVisible();
 });
 
 test('browser softphone appends transcript segments from the live stream once', async ({ page }) => {
   await installBrowserSoftphoneMocks(page);
   await openSoftphone(page);
+  await expect(page.locator('[data-transcript-panel]')).toBeVisible();
+  await expect(page.locator('[data-transcript-panel-badge]')).toHaveText('Waiting');
+  await expect(page.locator('[data-transcript-panel-message]')).toContainText('This pane stays visible so you can see transcripts as soon as the call starts.');
+  await prepareSoftphoneCall(page);
 
   await page.getByRole('button', { name: 'Browser Call' }).click();
 
-  await expect(page.getByText('/poc/browser-softphone/poc-call-1/transcript')).toBeVisible();
+  await expect(page.locator('[data-transcript-panel]').getByText('/poc/browser-softphone/poc-call-1/transcript', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-transcript-panel-badge]')).toHaveText('Listening');
+  await expect(page.locator('[data-transcript-panel-message]')).toContainText('Transcript segments will appear here as the call is transcribed.');
   await expect(page.locator('[data-transcript-scroll-region]')).toBeVisible();
+  await expect.poll(async () => page.evaluate(() => {
+    const sources = (window as Window & {
+      __browserSoftphoneTranscriptSources?: Array<{ closed?: boolean; listeners?: Record<string, unknown> }>;
+    }).__browserSoftphoneTranscriptSources ?? [];
+
+    return sources.filter((source) => !source.closed && Boolean(source.listeners?.['transcript.segment'])).length;
+  })).toBeGreaterThan(0);
 
   await page.evaluate(() => {
     const emitTranscript = (payload: unknown) => {
@@ -343,8 +419,8 @@ test('browser softphone appends transcript segments from the live stream once', 
 
     for (let index = 1; index <= 18; index += 1) {
       emitTranscript({
-        topic: '/poc/browser-softphone/poc-call-1/transcript',
-        callSessionId: 'poc-call-1',
+        topic: '/poc/browser-softphone/browser-softphone-call-1/transcript',
+        callSessionId: 'browser-softphone-call-1',
         segment: {
           id: index,
           sequence: index,
@@ -379,6 +455,8 @@ test('browser softphone appends transcript segments from the live stream once', 
       sourceEventId: 'evt-19',
     },
   });
+
+  await expect.poll(async () => page.evaluate(() => (window as Window & { __browserSoftphoneTranscriptEventCount?: number }).__browserSoftphoneTranscriptEventCount ?? 0)).toBeGreaterThan(0);
 
   const interimBubble = page.locator('[data-transcript-merge-key="evt-19"]');
   await expect(interimBubble).toHaveCount(1);
@@ -436,6 +514,7 @@ test('browser softphone appends transcript segments from the live stream once', 
 test('browser softphone shows a post call summary placeholder after hangup', async ({ page }) => {
   await installBrowserSoftphoneMocks(page);
   await openSoftphone(page);
+  await prepareSoftphoneCall(page);
 
   await page.getByRole('button', { name: 'Browser Call' }).click();
 
@@ -446,6 +525,8 @@ test('browser softphone shows a post call summary placeholder after hangup', asy
 
   const summaryPanel = page.locator('[data-post-call-summary]');
   await expect(summaryPanel).toHaveCount(1);
+  await expect(page.locator('[data-transcript-panel]')).toBeVisible();
+  await expect(page.locator('[data-transcript-scroll-region]')).toBeVisible();
   await expect(summaryPanel.getByText('Call Summary')).toBeVisible();
   await expect(summaryPanel.getByText('Customer concerns')).toBeVisible();
   await expect(summaryPanel.getByText('Action items')).toBeVisible();
@@ -454,4 +535,38 @@ test('browser softphone shows a post call summary placeholder after hangup', asy
   await expect(summaryPanel.getByText('Intermittent call quality and dropped audio')).toBeVisible();
   await expect(summaryPanel.getByText('Verify service status with the customer')).toBeVisible();
   await expect(summaryPanel.getByText('service quality')).toBeVisible();
+});
+
+test('browser softphone handles hangup destroy notifications without console errors', async ({ page }) => {
+  await installBrowserSoftphoneMocks(page);
+
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message);
+  });
+
+  page.on('console', (message) => {
+    if ('error' === message.type()) {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  await openSoftphone(page);
+  await page.evaluate(() => {
+    (window as Window & {
+      __browserSoftphoneSetEmitDestroyOnHangup?: (value: boolean) => void;
+    }).__browserSoftphoneSetEmitDestroyOnHangup?.(true);
+  });
+  await prepareSoftphoneCall(page);
+  await page.getByRole('button', { name: 'Browser Call' }).click();
+
+  await expect(page.getByRole('button', { name: 'Hangup' })).toBeVisible();
+  await page.getByRole('button', { name: 'Hangup' }).click();
+
+  await expect(page.locator('[data-post-call-summary]')).toBeVisible();
+  await expect(page.locator('[data-transcript-panel]')).toBeVisible();
+  await expect.poll(async () => pageErrors.length).toBe(0);
+  await expect.poll(async () => consoleErrors.length).toBe(0);
 });

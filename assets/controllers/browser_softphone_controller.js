@@ -473,7 +473,12 @@ export default class extends Controller {
 
         const url = this.browserSessionEventUrlTemplateValue.replace('{sessionToken}', this.browserSessionToken);
         try {
-            await fetch(url, {
+            console.debug('[browser-softphone] sending call event', {
+                event,
+                url,
+                payload,
+            });
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -483,6 +488,20 @@ export default class extends Controller {
                     event,
                     ...payload,
                 }),
+            });
+            const responseText = await response.text();
+            let responseJson = null;
+            try {
+                responseJson = JSON.parse(responseText);
+            } catch {
+                responseJson = responseText;
+            }
+            console.debug('[browser-softphone] call event response', {
+                event,
+                url,
+                status: response.status,
+                ok: response.ok,
+                response: responseJson,
             });
         } catch {
             // Best-effort telemetry only.

@@ -5,15 +5,25 @@ declare(strict_types=1);
 namespace App\Tests\Functional;
 
 use App\Entity\CallSession;
+use App\Entity\CallLeg;
 use App\Entity\Tenant;
 use App\Entity\User;
 use App\Entity\UserTenantMembership;
+use App\Repository\CallActionRepository;
+use App\Repository\CallRecordingRepository;
+use App\Repository\TranscriptionJobRepository;
 use App\Repository\TenantRepository;
+use App\Service\CallCaptureControlService;
+use App\Service\TelnyxCallControlService;
 use App\Service\CurrentTenantProviderInterface;
+use App\Transcription\Provider\TelnyxTranscriptionConfiguration;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
 {
@@ -196,6 +206,63 @@ final class BrowserSoftphoneSessionWorkflowTest extends WebTestCase
         $stored = $repo->findOneBy(['sessionToken' => $payload['browserSessionToken']]);
         self::assertInstanceOf(\App\Entity\BrowserSoftphoneSession::class, $stored);
         self::assertSame($telnyxCallControlId, $stored->getTelnyxCallControlId());
+    }
+
+    #[Test]
+    public function browserSessionCallActiveStartsLiveTranscription(): void
+    {
+        $data = $this->seedTenantData();
+        $callControlId = 'v3:call-control-id-9i3-transcribe';
+        $callLeg = (new CallLeg($data['callSession'], 'provider-leg-9i3-transcribe'))
+            ->setCallControlId($callControlId)
+            ->setDirection('outgoing')
+            ->setStatus('answered');
+        $this->entityManager->persist($callLeg);
+        $this->entityManager->flush();
+
+        $this->client->loginUser($data['user']);
+        $this->selectTenant($data['tenant']);
+        $this->client->request('POST', sprintf('/api/calls/%s/browser-session', $data['callSession']->getProviderSessionId()));
+        $payload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $captureControl = new CallCaptureControlService(
+            new TelnyxCallControlService(
+                new MockHttpClient(static fn (): MockResponse => new MockResponse('{"data":{"result":"ok"}}', ['http_code' => 200])),
+                new NullLogger(),
+                'test-key',
+            ),
+            static::getContainer()->get(CallActionRepository::class),
+            static::getContainer()->get(CallRecordingRepository::class),
+            static::getContainer()->get(TranscriptionJobRepository::class),
+            static::getContainer()->get(EntityManagerInterface::class),
+            static::getContainer()->get(\App\Service\AuditLogger::class),
+            new NullLogger(),
+            'wav',
+            'dual',
+            static::getContainer()->get(TelnyxTranscriptionConfiguration::class),
+        );
+        static::getContainer()->set(CallCaptureControlService::class, $captureControl);
+
+        $this->client->request(
+            'POST',
+            sprintf('/api/browser-softphone-sessions/%s/events', $payload['browserSessionToken']),
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode([
+                'event' => 'call.active',
+                'callId' => 'call-id-9i3-transcribe',
+                'destinationNumber' => $data['callSession']->getClientPhoneNumber(),
+            ], JSON_THROW_ON_ERROR),
+        );
+
+        self::assertResponseIsSuccessful();
+        $eventPayload = json_decode($this->client->getResponse()->getContent() ?: '{}', true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($eventPayload['ok']);
+        self::assertSame($callControlId, $eventPayload['telnyxCallControlId']);
+        self::assertSame('connected', $eventPayload['callState']);
+
+        /** @var CallActionRepository $actionRepository */
+        $actionRepository = static::getContainer()->get(CallActionRepository::class);
+        self::assertTrue($actionRepository->hasActionForSession($data['callSession'], 'transcription_start'));
     }
 
     /**
